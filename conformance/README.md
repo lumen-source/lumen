@@ -4,11 +4,13 @@ The conformance suite is the executable definition of what a Lumen implementatio
 
 ## Lumen-mu positive cases (`../mu/examples/`)
 
-| Program | Expected stdout | Exercises |
-|---------|-----------------|-----------|
-| `fib.lm` | `55` | recursion, `if`, checked arithmetic, the `Console` seam |
-| `safe_div.lm` | `ok 4` then `div by zero` | user sum type, `Result`, nested exhaustive `match` |
-| `propagate.lm` | `9` | non-coercing `?` propagation, error-type matching |
+| Program | Expected stdout | Exercises | Status |
+|---------|-----------------|-----------|--------|
+| `fib.lm` | `55` | recursion, `if`, checked arithmetic, the `Console` seam | PASSES on the stage-0 seed (`../seed/`, `node run.mjs`) |
+| `safe_div.lm` | `ok 4` then `div by zero` | user sum type, `Result`, nested exhaustive `match` | needs sum/Text in the seed (next increment) |
+| `propagate.lm` | `9` | non-coercing `?` propagation, error-type matching | needs sum/Result in the seed (next increment) |
+
+The stage-0 seed runs the integer/control-flow core today (`fib.lm` produces `55` end to end through the WAT interpreter and the single `Console` seam). The remaining two need boxed values (sum, `Text`, `Result`), the next seed increment.
 
 ## Surface (v0.1) illustrative cases (`../examples/`)
 

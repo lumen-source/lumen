@@ -1,6 +1,6 @@
 # The Lumen-mu WAT seed
 
-Status: draft v0.1. This is the one piece of the toolchain not written in Lumen, and it is deliberately tiny and disposable. It is a hand-authored WebAssembly module (in the text format, WAT) that executes the Lumen-mu IR (`../docs/spec/LUMEN_MU.md` section 4). WebAssembly is a compilation substrate (a target, not a high-level programming language), so this honors the zero-legacy commitment: no C, C++, Rust, or other legacy language is part of Lumen. The seed exists only to break the bootstrap circularity and is discarded at the self-hosting fixpoint.
+Status: IMPLEMENTED and running. The interpreter is `seed.wat`; it executes `fib(10)` to `55` on a WASM engine today (see `README.md`; `run.mjs` is the harness). The WAT sketch later in this document is illustrative and is superseded by `seed.wat`, which adds the call stack and `JZ`/`CALL`/`RET`. This is the one piece of the toolchain not written in Lumen, and it is deliberately tiny and disposable. It is a hand-authored WebAssembly module (in the text format, WAT) that executes the Lumen-mu IR (`../docs/spec/LUMEN_MU.md` section 4). WebAssembly is a compilation substrate (a target, not a high-level programming language), so this honors the zero-legacy commitment: no C, C++, Rust, or other legacy language is part of Lumen. The seed exists only to break the bootstrap circularity and is discarded at the self-hosting fixpoint.
 
 ## Role in the bootstrap
 

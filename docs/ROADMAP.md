@@ -41,6 +41,8 @@ Exit criterion: the lambda-cap soundness and capability-non-escape proofs are me
 
 ## Phase 1: Bootstrap front end (lex, parse, format)
 
+> Stage-0 progress: the WAT seed interpreter (`seed/seed.wat`) is implemented and RUNS. It executes the Lumen-mu IR for `fib(10)` to `55` end to end through the single `Console` seam (`seed/README.md`, `node run.mjs`). Next seed increment: boxed values (sum, `Text`, `Result`) so `safe_div.lm` and `propagate.lm` run; then write the Lumen-mu compiler in Lumen-mu.
+
 Goal: a Stage 0 tool that can read v0.1 source, build the CST and AST, and format it canonically.
 
 - Lexer producing tokens with spans and preserved trivia.
