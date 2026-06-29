@@ -1,0 +1,7 @@
+fn main(console: Console) -> Unit {
+  # store value 65 ('A') at memory address 1000
+  store8(1000, 65)
+  # load it back
+  let x = load8(1000)
+  console.print_int(x)
+}

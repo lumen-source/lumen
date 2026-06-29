@@ -12,7 +12,8 @@ import wabtInit from 'wabt';
 const SRC_BASE = 20000;
 const OPS = {0:'HALT',1:'PUSH',2:'GETARG',3:'ADD',4:'SUB',5:'LT',6:'JZ',7:'JMP',8:'CALL',
   9:'RET',10:'PRINTINT',11:'MUL',12:'DIV',13:'RESERVE',14:'SETLOCAL',15:'MKTEXT',
-  16:'PRINTTEXT',17:'CONCAT',18:'INT2TEXT',19:'EQ',20:'NE',21:'LE',22:'GE',23:'GT',24:'MOD'};
+  16:'PRINTTEXT',17:'CONCAT',18:'INT2TEXT',19:'EQ',20:'NE',21:'LE',22:'GE',23:'GT',24:'MOD',
+  25:'LOAD8',26:'STORE8',27:'LOAD32',28:'STORE32'};
 const ONE_OPERAND = new Set([1,2,6,7,13,14,15]);
 
 function usage() {

@@ -45,6 +45,10 @@
   (data (i32.const 52100) "int_to_text")
   (data (i32.const 52120) "text_concat")
   (data (i32.const 52140) "print")
+  (data (i32.const 52160) "load8")
+  (data (i32.const 52170) "store8")
+  (data (i32.const 52180) "load32")
+  (data (i32.const 52190) "store32")
 
   (global $osp     (mut i32) (i32.const 0))
   (global $csp     (mut i32) (i32.const 0))
@@ -487,6 +491,14 @@
               (then (call $emitw (i32.const 18)) (return)))   ;; INT2TEXT
             (if (call $eqlit (local.get $off) (local.get $len) (i32.const 52120) (i32.const 11))   ;; text_concat(a,b)
               (then (call $emitw (i32.const 17)) (return)))   ;; CONCAT
+            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 52160) (i32.const 5))   ;; load8(x)
+              (then (call $emitw (i32.const 25)) (return)))   ;; LOAD8
+            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 52170) (i32.const 6))   ;; store8(a,b)
+              (then (call $emitw (i32.const 26)) (return)))   ;; STORE8
+            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 52180) (i32.const 6))   ;; load32(x)
+              (then (call $emitw (i32.const 27)) (return)))   ;; LOAD32
+            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 52190) (i32.const 7))   ;; store32(a,b)
+              (then (call $emitw (i32.const 28)) (return)))   ;; STORE32
             (call $emitw (i32.const 8))   ;; CALL
             (call $fixup_add (global.get $emit) (local.get $off) (local.get $len))   ;; entry resolved later
             (call $emitw (i32.const 0))   ;; placeholder entry (backpatched by $resolve_fixups)
@@ -780,9 +792,23 @@
         (if (i32.eq (local.get $op) (i32.const 23)) (then           ;; GT
           (local.set $bb (call $opop)) (local.set $a (call $opop))
           (call $opush (i64.extend_i32_u (i64.gt_s (local.get $a) (local.get $bb)))) (br $loop)))
-        (if (i32.eq (local.get $op) (i32.const 24)) (then           ;; MOD
-          (local.set $bb (call $opop)) (local.set $a (call $opop))
-          (call $opush (i64.rem_s (local.get $a) (local.get $bb))) (br $loop)))
+        (if (i32.eq (local.get $op) (i32.const 24)) (then (local.set $t (call $opop)) (call $opush (i64.rem_s (call $opop) (local.get $t))) (br $loop)))
+        (if (i32.eq (local.get $op) (i32.const 25)) (then           ;; LOAD8: pop -> i64.load8_u -> push
+          (call $opush (i64.load8_u (i32.wrap_i64 (call $opop))))
+          (br $loop)))
+        (if (i32.eq (local.get $op) (i32.const 26)) (then           ;; STORE8: pop val, pop addr -> i64.store8
+          (local.set $t (call $opop))
+          (i64.store8 (i32.wrap_i64 (call $opop)) (local.get $t))
+          (call $opush (i64.const 0))
+          (br $loop)))
+        (if (i32.eq (local.get $op) (i32.const 27)) (then           ;; LOAD32: pop -> i64.load32_u -> push
+          (call $opush (i64.load32_u (i32.wrap_i64 (call $opop))))
+          (br $loop)))
+        (if (i32.eq (local.get $op) (i32.const 28)) (then           ;; STORE32: pop val, pop addr -> i64.store32
+          (local.set $t (call $opop))
+          (i64.store32 (i32.wrap_i64 (call $opop)) (local.get $t))
+          (call $opush (i64.const 0))
+          (br $loop)))
         (if (i32.eq (local.get $op) (i32.const 10)) (then (call $print_i64 (call $opop)) (br $loop)))
         (br $halt))))
 
