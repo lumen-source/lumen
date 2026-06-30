@@ -29,6 +29,41 @@ eq('mod',            runMain('c.print_int(7 % 3)'), '1\n');
 eq('precedence * over +', runMain('c.print_int(2 + 3 * 4)'), '14\n');
 eq('parens override precedence', runMain('c.print_int((2 + 3) * 4)'), '20\n');
 
+// ---- Float: literals, arithmetic, comparison, Int<->Float, to_int/round ----
+eq('float to_int truncates', runMain('c.print_int(to_int(2.9))'), '2\n');
+eq('round up',     runMain('c.print_int(round(2.6))'), '3\n');
+eq('round down',   runMain('c.print_int(round(2.4))'), '2\n');
+eq('float add',    runMain('c.print_int(to_int(1.5 + 2.5))'), '4\n');
+eq('float sub',    runMain('c.print_int(to_int(5.0 - 1.25))'), '3\n');
+eq('float mul',    runMain('c.print_int(to_int(2.0 * 3.5))'), '7\n');
+eq('float true div', runMain('c.print_int(to_int(7.0 / 2.0))'), '3\n');
+eq('float precedence', runMain('c.print_int(to_int(1.0 + 2.0 * 3.0))'), '7\n');
+eq('int+float coerces lhs', runMain('c.print_int(to_int(1 + 2.5))'), '3\n');
+eq('float+int coerces rhs', runMain('c.print_int(to_int(2.5 + 1))'), '3\n');
+eq('float compare lt',  runMain('c.print_int(2.5 < 3.0)'), '1\n');
+eq('float compare le',  runMain('c.print_int(3.0 <= 2.5)'), '0\n');
+eq('float param + return', runFull('fn dbl(r: Float) -> Float { return r * 2.0 }\nfn main(c: Console) -> Unit { c.print_int(round(dbl(1.5) * 10.0)) }\n'), '30\n');
+eq('float let', runFull('fn main(c: Console) -> Unit {\n  let x: Float = 1.5\n  c.print_int(to_int(x + x))\n}\n'), '3\n');
+eq('to_float of int', runMain('c.print_int(to_int(to_float(3) / 2.0 * 10.0))'), '15\n');
+
+// ---- math builtins: sqrt, abs, exp, ln, pow ----
+eq('sqrt',        runMain('c.print_int(round(sqrt(2.0) * 1000000.0))'), '1414214\n');
+eq('abs of float unary minus', runMain('c.print_int(round(abs(-3.5) * 10.0))'), '35\n');
+eq('exp(1)',      runMain('c.print_int(round(exp(1.0) * 1000000.0))'), '2718282\n');
+eq('ln roundtrip', runMain('c.print_int(round(ln(exp(2.0)) * 1000000.0))'), '2000000\n');
+eq('pow integer', runMain('c.print_int(round(pow(2.0, 10.0)))'), '1024\n');
+eq('pow compound', runMain('c.print_int(round(pow(1.05, 3.0) * 1000000.0))'), '1157625\n');
+
+// ---- arrays (heap-backed Float vectors): array(n) aget(a,i) aset(a,i,x) alen(a) ----
+eq('array len', runMain('c.print_int(alen(array(5)))'), '5\n');
+eq('array set/get', runFull('fn main(c: Console) -> Unit {\n  let a = array(2)\n  aset(a, 0, 1.5)\n  aset(a, 1, 2.5)\n  c.print_int(to_int((aget(a, 0) + aget(a, 1)) * 10.0))\n}\n'), '40\n');
+eq('array sum loop', runFull('fn main(c: Console) -> Unit {\n  let a = array(3)\n  aset(a, 0, 10.0)\n  aset(a, 1, 20.0)\n  aset(a, 2, 30.0)\n  var s: Float = 0.0\n  var i: Int = 0\n  while i < alen(a) {\n    s = s + aget(a, i)\n    i = i + 1\n  }\n  c.print_int(to_int(s))\n}\n'), '60\n');
+eq('array oob get is 0', runFull('fn main(c: Console) -> Unit {\n  let a = array(1)\n  aset(a, 0, 9.0)\n  c.print_int(to_int(aget(a, 5)))\n}\n'), '0\n');
+
+// ---- records (compile-time sugar over arrays: field name -> stable global slot) ----
+eq('record construct + field read', runFull('type Pt = { x: Float, y: Float }\nfn main(c: Console) -> Unit {\n  let p = Pt { x: 1.5, y: 2.5 }\n  c.print_int(to_int((p.x + p.y) * 10.0))\n}\n'), '40\n');
+eq('record as fn param', runFull('type Cf = { amt: Float, t: Float }\nfn pv1(z: Cf, r: Float) -> Float { return z.amt / pow(1.0 + r, z.t) }\nfn main(c: Console) -> Unit {\n  let x = Cf { amt: 100.0, t: 2.0 }\n  c.print_int(round(pv1(x, 0.05) * 100.0))\n}\n'), '9070\n');
+
 // ---- comparisons (1 = true, 0 = false) ----
 eq('lt true',  runMain('c.print_int(3 < 7)'), '1\n');
 eq('lt false', runMain('c.print_int(7 < 3)'), '0\n');
@@ -50,6 +85,15 @@ eq('and lower than comparison', runMain('c.print_int(3 < 5 and 5 < 9)'), '1\n');
 eq('or short-circuits past a trapping rhs',  runMain('c.print_int(1 == 1 or 1 / 0 == 0)'), '1\n');
 eq('and short-circuits past a trapping rhs', runMain('c.print_int(1 == 2 and 1 / 0 == 0)'), '0\n');
 eq('compound condition in if', runFull('fn in_range(x: Int, lo: Int, hi: Int) -> Int {\n  if x >= lo and x <= hi { return 1 }\n  return 0\n}\nfn main(c: Console) -> Unit {\n  c.print_int(in_range(5, 1, 10))\n  c.print_int(in_range(99, 1, 10))\n}\n'), '1\n0\n');
+
+// ---- logical negation: not (prefix; binds looser than comparison, tighter than and/or) ----
+eq('not nonzero',  runMain('c.print_int(not 5)'), '0\n');
+eq('not zero',     runMain('c.print_int(not 0)'), '1\n');
+eq('not over comparison', runMain('c.print_int(not 1 == 1)'), '0\n');   // not (1 == 1)
+eq('not makes false true', runMain('c.print_int(not 1 == 2)'), '1\n');  // not (1 == 2)
+eq('double not normalizes', runMain('c.print_int(not not 5)'), '1\n');
+eq('not in and',   runMain('c.print_int(1 == 1 and not 0)'), '1\n');
+eq('not grouped',  runMain('c.print_int(not (1 == 2 or 1 == 3))'), '1\n');
 
 // ---- locals: let, multiple lets, var reassignment ----
 eq('let binding', runMain('let x = 5\n  c.print_int(x + 1)'), '6\n');
