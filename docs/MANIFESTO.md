@@ -12,6 +12,22 @@ Lumen inherits nothing by default. No syntax, no convention, no semantic, and no
 
 This applies to the toolchain itself. No legacy high-level language is part of Lumen's identity or its shipped tools. The compiler, the standard library, the formatter, the language server, the debugger, and the package manager are written in Lumen. The single unavoidable bootstrap seed targets a low-level substrate (a compilation target such as WebAssembly or LLVM IR, not a programming language) and is discarded the moment Lumen can compile itself. Lumen stands on its own.
 
+## 100% self-contained (mandatory)
+
+**The Lumen toolchain must be 100% self-contained. This is not an aspiration; it is a hard requirement, and it is the operational form of zero legacy.** Self-containment is what buys maximum freedom: a thing that depends on nothing outside itself cannot be broken, gated, deprecated, rate-limited, relicensed, or steered by anyone else. It is portable to any machine, auditable in full, reproducible to the byte, and free to evolve on its own schedule. Freedom is owing nothing.
+
+What this forbids, with no exceptions, in the shipped toolchain and on the path to it:
+
+- **No scaffolding in another language.** The compiler, and any program that helps build or run it, may not be written in Python, JavaScript, Rust, C, or any other language. A "self-hosted" compiler that is propped up by a Python writer or a JavaScript driver is not self-hosted and is not Lumen. Such an artifact is rejected on sight.
+- **No external package managers or networked dependencies.** No `npm`, `pip`, `cargo`, `npx`, or any dependency fetched from a registry. No network access during build or run of the toolchain. The toolchain ships as itself, complete.
+- **No external assembler, formatter, runtime, or build tool** that is not part of Lumen. The formatter, the test runner, the debugger, the package manager: all are Lumen, all ship in the box.
+
+The single permitted exception, and it is irreducible: the **execution substrate** that runs the very first seed (a WebAssembly engine or a machine ISA). Producing executable code is the one thing a compiler cannot do without a target. That substrate is named explicitly in the trusted computing base, kept as small as possible, and discarded at the self-hosting fixpoint. A substrate is a target, not a dependency in the sense that matters here.
+
+Bootstrap scaffolds (a throwaway WAT seed, a temporary host harness) are tolerated only while they are **disposable and clearly labeled as such**, and only until self-hosting replaces them. They are never committed as if they were the real artifact, never relied upon by the shipped toolchain, and never allowed to become permanent.
+
+The test is one question: **could this toolchain be built and run, end to end, on an air-gapped machine that contains nothing but Lumen itself and its named substrate?** If the answer is no, it is not self-contained, and it is not done.
+
 ## The four commitments
 
 Everything in Lumen is required to serve these four commitments. They are the standard against which any proposed feature is judged.
