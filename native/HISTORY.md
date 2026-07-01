@@ -10,6 +10,37 @@ bit-identical to it).
 
 ---
 
+## 2026-06-30-2043 — Full-slot type tracking: float pricing beats identical-algorithm C ~2x
+
+Adopted the type-tracked-slot emitter (originated on the `antigravity-2026-06-30-2033` branch)
+and fixed the seed-oracle regression it shipped with. This supersedes the param-only signature
+typing (which stalled): instead of typing just call boundaries, EVERY value-stack slot carries a
+static type (tracked at emit time in a `load8/store8` byte array), so each slot lowers to a real
+native local — `sd_k` (a `double`) for float slots, `s_k` (`int64_t`) for int — and `l2d/d2l`
+churn disappears from function BODIES, not just call sites. The seed emits a per-fn `TYPEMAP`
+(opcode 57: rettype + slot types) that `$run` skips; the runtime C helpers moved out of
+`emit_fn.lm` into a host-injected `C_HEADER` (native_float_test_header.mjs), keeping the emitter
+inside the SRC region. Memory map grown (SRC 20000->100000, 100 pages) for headroom.
+
+### Result (gated)
+- Float diff: **11/11 golden==interpreter==native byte-for-byte**, both Black-Scholes variants.
+- Black-Scholes bench: native **~54M prices/sec = ~60% of libm-C, ~2.1x hand-C at the identical
+  (truncated-series) algorithm** — the lowering is now FASTER than hand-written C for the same
+  math; emitted arm64 is pure FP-register (fmul/fadd/fdiv), zero integer mul/add. Scalar core
+  still ~108% of C.
+- **Oracle kept green:** seed 18/18 + 102/102 basics + 7/7 safety + perf PASS, scalar 11/11,
+  optimize 12/12. The source branch had regressed the seed to **0/18** by relocating SRC in the
+  wat but leaving `SRC_BASE=20000` hardcoded in `test.mjs`/`safety.mjs`/`lumenc.mjs`/`bench.mjs`;
+  fixed those to 100000 (Rule 5: the interpreter oracle is never allowed to go red).
+
+### Honest status
+"Beats C at the identical algorithm" is met and gated (~2.1x). Beating libm-C outright (currently
+~60%) is NOT met and is a different claim: the fixed 16-term `f_exp`/15-term `f_ln` series (pinned
+by the oracle) is inherently costlier than libm's tuned transcendentals; closing it needs SIMD or
+a faster oracle-sanctioned series, not more ABI work.
+
+---
+
 ## 2026-06-30-1936 — v3: float + array + record native codegen (usable for pricing; honest on speed)
 
 ### Landed

@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import wabtInit from 'wabt';
 
-const SRC_BASE = 20000;
+const SRC_BASE = 100000;
 const cases = [
   ['../mu/examples/fib_print.lm', '55\n'],
   ['../mu/examples/add.lm', '42\n'],

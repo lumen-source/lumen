@@ -12,7 +12,7 @@ const tAsm = performance.now()-t;
 let out='';
 const { instance } = await WebAssembly.instantiate(binary, { lumen:{ console_print:(p,l)=>{ out+=Buffer.from(new Uint8Array(instance.exports.mem.buffer,p,l)).toString('utf8'); }}});
 const b = Buffer.from(SRC,'utf8');
-new Uint8Array(instance.exports.mem.buffer,20000,b.length).set(b);
+new Uint8Array(instance.exports.mem.buffer,100000,b.length).set(b);
 t=performance.now(); const ir=instance.exports.compile(b.length); const tCompile=performance.now()-t;
 t=performance.now(); instance.exports.run(instance.exports.dbg_main()); const tRun=performance.now()-t;
 const fib=n=>{let a=0,bb=1;for(let i=0;i<n;i++){[a,bb]=[bb,a+bb];}return a;};

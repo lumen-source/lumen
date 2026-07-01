@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import wabtInit from 'wabt';
 
-const SRC_BASE = 20000;   // must match lumenc.wat's source region base
+const SRC_BASE = 100000;   // must match lumenc.wat's source region base
 const wabt = await wabtInit();
 const wat = fs.readFileSync(new URL('./lumenc.wat', import.meta.url), 'utf8');
 const binary = wabt.parseWat('lumenc.wat', wat).toBinary({}).buffer;

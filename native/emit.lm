@@ -22,6 +22,18 @@ fn ir_len() -> Int { return load32(hdr()) }
 fn ir_main() -> Int { return load32(hdr() + 4) }
 fn ir_word(i: Int) -> Int { return load32(hdr() + 8 + i * 4) }
 
+fn resolve_pc(target: Int) -> Int {
+  var p = target
+  while p < ir_len() {
+    if ir_word(p) == 57 {
+      p = p + 3 + ir_word(p + 1)
+    } else {
+      return p
+    }
+  }
+  return p
+}
+
 # operand words that follow each opcode in the stream (scalar subset)
 fn oplen(op: Int) -> Int {
   if op == 1 { return 1 }
@@ -65,16 +77,21 @@ fn emit_prologue(c: Console) -> Unit {
 fn emit_ltab(c: Console) -> Unit {
   var pc = 0
   while pc < ir_len() {
-    c.print("Ltab[")
-    num(c, pc)
-    c.print("]=&&L")
-    num(c, pc)
-    c.print(";\n")
-    pc = pc + 1 + oplen(ir_word(pc))
+    let op = ir_word(pc)
+    if op == 57 {
+      pc = pc + 3 + ir_word(pc + 1)
+    } else {
+      c.print("Ltab[")
+      num(c, pc)
+      c.print("]=&&L")
+      num(c, pc)
+      c.print(";\n")
+      pc = pc + 1 + oplen(op)
+    }
   }
   c.print("sp=0; csp=0; ab=0;\n")
   c.print("goto *Ltab[")
-  num(c, ir_main())
+  num(c, resolve_pc(ir_main()))
   c.print("];\n")
 }
 
@@ -102,11 +119,11 @@ fn emit_op(c: Console, pc: Int) -> Unit {
     c.print("sp=sp-1;S[sp-1]=(S[sp-1]<S[sp])?1:0;\n")
   } else if op == 6 {
     c.print("sp=sp-1;if(S[sp]==0)goto *Ltab[")
-    num(c, ir_word(pc + 1))
+    num(c, resolve_pc(ir_word(pc + 1)))
     c.print("];\n")
   } else if op == 7 {
     c.print("goto *Ltab[")
-    num(c, ir_word(pc + 1))
+    num(c, resolve_pc(ir_word(pc + 1)))
     c.print("];\n")
   } else if op == 8 {
     c.print("RA[csp]=Ltab[")
@@ -114,7 +131,7 @@ fn emit_op(c: Console, pc: Int) -> Unit {
     c.print("];AB[csp]=ab;csp=csp+1;ab=sp-")
     num(c, ir_word(pc + 2))
     c.print(";goto *Ltab[")
-    num(c, ir_word(pc + 1))
+    num(c, resolve_pc(ir_word(pc + 1)))
     c.print("];\n")
   } else if op == 9 {
     c.print("{int64_t r=S[sp-1];sp=ab;S[sp]=r;sp=sp+1;csp=csp-1;ab=AB[csp];goto *RA[csp];}\n")
@@ -154,8 +171,13 @@ fn emit_op(c: Console, pc: Int) -> Unit {
 fn emit_body(c: Console) -> Unit {
   var pc = 0
   while pc < ir_len() {
-    emit_op(c, pc)
-    pc = pc + 1 + oplen(ir_word(pc))
+    let op = ir_word(pc)
+    if op == 57 {
+      pc = pc + 3 + ir_word(pc + 1)
+    } else {
+      emit_op(c, pc)
+      pc = pc + 1 + oplen(op)
+    }
   }
   c.print("return 0;\n}\n")
 }

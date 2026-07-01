@@ -14,7 +14,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import wabtInit from 'wabt';
 
-const SRC_BASE = 20000;
+const SRC_BASE = 100000;
 const CODE_BASE = 11328;
 const SCRATCH = 524288;            // page 9: compile-time tables only; safe to inject into after compile
 
@@ -25,7 +25,7 @@ const EMIT_SRC = fs.readFileSync(new URL('./emit.lm', import.meta.url), 'utf8');
 const EMIT_FN_SRC = fs.readFileSync(new URL('./emit_fn.lm', import.meta.url), 'utf8');
 const OPT_SRC = fs.readFileSync(new URL('./optimize.lm', import.meta.url), 'utf8');
 
-async function freshInstance() {
+export async function freshInstance() {
   let out = '';
   const { instance } = await WebAssembly.instantiate(binary, {
     lumen: { console_print: (p, l) => { out += Buffer.from(new Uint8Array(instance.exports.mem.buffer, p, l)).toString('utf8'); } },
@@ -33,9 +33,9 @@ async function freshInstance() {
   return { ex: instance.exports, getOut: () => out, resetOut: () => { out = ''; } };
 }
 
-function writeSrc(I, src) {
+export function writeSrc(I, src) {
   const b = Buffer.from(src, 'utf8');
-  if (b.length > 10000) throw new Error(`source ${b.length}B exceeds SRC capacity`);
+  if (b.length > 50000) throw new Error(`source ${b.length}B exceeds SRC capacity`);
   new Uint8Array(I.ex.mem.buffer, SRC_BASE, b.length).set(b);
   return b.length;
 }
@@ -80,7 +80,8 @@ async function emitWith(emitterSrc, words, main) {
   I.resetOut();
   if (I.ex.set_fuel_max) I.ex.set_fuel_max(4000000000n);
   I.ex.run(I.ex.dbg_main());
-  return I.getOut();
+  const { C_HEADER } = await import('./native_float_test_header.mjs');
+  return C_HEADER + I.getOut();
 }
 
 // v2 per-function emitter (emit_fn.lm) - the "beat C" lowering
