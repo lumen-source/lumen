@@ -96,7 +96,9 @@ export async function buildAndRunFn(src, opt = '-O2') {
   fs.writeFileSync(cfile, csrc);
   // -ffp-contract=off -fno-fast-math: the transcribed f_exp/f_ln/f_pow reproduce the interpreter's
   // bits only with no FMA contraction and default (ties-to-even) rounding. Never -Ofast.
-  try { execFileSync('clang', ['-ffp-contract=fast', '-fno-fast-math', opt, '-o', bin, cfile], { stdio: ['ignore', 'ignore', 'pipe'] }); }
+  // (=fast was a #177 leftover contradicting this comment; measured 2026-07-01 the =off cost is
+  // within bench noise, 133-137% of libm-C either way, so determinism-by-default costs nothing.)
+  try { execFileSync('clang', ['-ffp-contract=off', '-fno-fast-math', opt, '-o', bin, cfile], { stdio: ['ignore', 'ignore', 'pipe'] }); }
   catch (e) { throw new Error(`clang failed: ${String(e.stderr || e.message).slice(0, 300)}`); }
   let stdout = '', exit = 0;
   try { stdout = execFileSync(bin, { encoding: 'utf8' }); }
