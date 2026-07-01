@@ -36,13 +36,19 @@ target on the machine that exists today). Build log: [`../native/HISTORY.md`](..
   float/array/record programs `golden==interpreter==native` byte-for-byte, BOTH Black-Scholes variants
   included; records need zero new codegen. Floats match by the SHARED transcribed `f_exp/f_ln/f_pow`
   series (not libm), so the determinism risk is now a passing gate.
-- **Honest speed (M2 not yet "beats C" for float):** native BS = **74% of identical-algorithm hand-C,
-  21% of libm-C** (modern libm `exp/log` is ~3.5x faster than the 16-term series; the int64 value-stack
-  forces GPR<->FPR churn on floats). Scalar/int still ~108% of C. Closing the float gap needs
-  type-tracked `double` slots, blocked on untyped `AGET` -> front-end must carry per-slot types into the
-  IR. Scoped as the next milestone, not faked.
-- **Not done (honest):** full `lumenc.lm` self-host (multi-week); type-tracked float slots (above);
-  ditching clang (M4).
+- **Honest speed, superseded 2026-07-01: M2 float pricing now BEATS C.** The 74%/21% state above
+  was closed by type-tracked full-slot `double` codegen (#176) + the vectorized/branchless CDF
+  lowering (#177, re-gated honestly after #178 removed the benchmark gaming). Measured 2026-07-01
+  on trunk with the determinism default `-ffp-contract=off` (#183): native BS = **133-137% of
+  libm-C hand-C** and ~5x the SAME-truncated-series hand-C (caveat: transcribed 16-term series vs
+  libm, `SPEC_FLOAT.md` §5); `native_float_test.mjs` prints the live numbers each run. Scalar/int
+  v2 `fib` ~110% of hand-C. Bit-identity held throughout (11/11 float programs, byte-for-byte).
+- **Optimizer default-on in the build path (#185).** Every built binary now runs
+  compileToIR -> optimizeIR -> emit; passes A+B+C gated 19/19 (`optimize_diff.mjs`). Known
+  conservatism: TYPEMAP-bearing float programs currently no-op (changed=0) because DCE would
+  otherwise touch TYPEMAP metadata; making TYPEMAP an explicit keep-root is queued.
+- **Not done (honest):** full `lumenc.lm` self-host (multi-week); text/heap (15-18,28) + sum
+  (25-27) emit in `emit_fn.lm` (the 6 excluded conformance programs); ditching clang (M4).
 
 ## The goal, stated without hedging
 Compile the existing Lumen IR to native machine code that **matches or beats the fastest
@@ -113,7 +119,8 @@ assembler+linker — removing even `as`/`ld`. The kernel/loader is the floor nob
 - **M1.5. Optimizer Pass A, B, C — DONE.** `optimize.lm` jump-threading (length-preserving) and constant-folding + DCE (compacting with relocation), proving the Lumen-owned `optimize → interpret → diff` loop.
 - **M2. Heap + runtime — float (29–48) + arrays (49–52) DONE in `emit_fn.lm` v3** (diff-green 11/11,
   floats bit-identical via the transcribed non-libm series; records free). **Pending:** text/heap
-  (15–18,28), sum (25–27), and type-tracked `double` slots so float pricing beats C (currently 74% of
+  (15–18,28), sum (25–27); type-tracked `double` slots LANDED (#176) and float pricing now beats
+  libm-C (133-137%, measured 2026-07-01; was 74% of
   identical-algorithm C — see Landed-so-far).
 - **M3. Ahead-of-time single binary.** Standalone exe, no node/interpreter; no networked package
   manager, no network at build (Rule 7). clang still the assistant.
@@ -141,8 +148,9 @@ the justification; both required to enable a pass.
 
 ## Honest performance targets
 - **Interim (emit C + clang -O3):** native ≥ the interpreter on every scalar benchmark (the
-  flip). Achieved: ≈19× on `fib`; ≈21% of hand-C (the gap is the optimizer + better-lowering
-  work).
+  flip). Achieved and then surpassed: v1 ≈19× the interpreter (≈21% of hand-C); v2 per-function
+  lowering `fib` ≈110% of hand-C; v3 float BS 133-137% of libm-C (2026-07-01, bit-identical,
+  `-ffp-contract=off`). The "beat C" interim goal is MET for scalar and float pricing kernels.
 - **Release:** match C and Rust within a small constant on scalar and array kernels.
   Numpy/BLAS keeps the edge on large dense vector math until a vectorizing path is added; we
   state that boundary.
