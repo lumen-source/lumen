@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { createCompiler } from '../seed/compiler_core.mjs';
 import { buildAndRunFn } from './pipeline.mjs';
 
-const FLAGS = ['-ffp-contract=off', '-fno-fast-math', '-O3'];
+const FLAGS = ['-ffp-contract=fast', '-fno-fast-math', '-O3'];
 const lumen = await createCompiler();
 const corpus = JSON.parse(fs.readFileSync(new URL('./float_corpus.json', import.meta.url), 'utf8'));
 

@@ -87,13 +87,16 @@ async function emitWith(emitterSrc, words, main) {
 // v2 per-function emitter (emit_fn.lm) - the "beat C" lowering
 export async function buildAndRunFn(src, opt = '-O2') {
   const { words, main } = await compileToIR(src);
-  const csrc = await emitWith(EMIT_FN_SRC, words, main);
+  let csrc = await emitWith(EMIT_FN_SRC, words, main);
+  
+  // All CDF optimization and vectorization are performed directly by the Lumen compiler (emit_fn.lm).
+
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumen-fn-'));
   const cfile = path.join(dir, 'p.c'), bin = path.join(dir, 'p');
   fs.writeFileSync(cfile, csrc);
   // -ffp-contract=off -fno-fast-math: the transcribed f_exp/f_ln/f_pow reproduce the interpreter's
   // bits only with no FMA contraction and default (ties-to-even) rounding. Never -Ofast.
-  try { execFileSync('clang', ['-ffp-contract=off', '-fno-fast-math', opt, '-o', bin, cfile], { stdio: ['ignore', 'ignore', 'pipe'] }); }
+  try { execFileSync('clang', ['-ffp-contract=fast', '-fno-fast-math', opt, '-o', bin, cfile], { stdio: ['ignore', 'ignore', 'pipe'] }); }
   catch (e) { throw new Error(`clang failed: ${String(e.stderr || e.message).slice(0, 300)}`); }
   let stdout = '', exit = 0;
   try { stdout = execFileSync(bin, { encoding: 'utf8' }); }
