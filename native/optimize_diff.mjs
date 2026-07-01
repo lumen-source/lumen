@@ -159,5 +159,38 @@ const okBig = beforeBig === "7\n" && afterBig === "7\n" && changedBig === 0
 console.log(`${okBig ? 'PASS' : 'FAIL'}  synth-size-failsafe  changed=${changedBig}  len=${optBig.length}  out=${JSON.stringify(afterBig)}`);
 if (okBig) pass++; else fail++;
 
-console.log(`\n${pass}/${SCALAR.length + 8} checks: optimize.lm (Lumen) is output-identical to the interpreter; size delta: -${totalWordsRemoved} words, total folds: ${totalFolds} (fail ${fail})`);
+// 8. TYPEMAP keep-root: typemap records (op 57) are emitter metadata, usually sitting
+// control-flow-unreachable after a RET. The interpreter nop-skips them, so runIR-based checks
+// stay green even when DCE eats them - but emit_fn.lm derives slot/return types from them, and
+// stripping them silently degrades (or for nonzero type codes, MISCOMPILES) the native build.
+// Regression: pre-barrier the optimizer deleted them (this synthetic came back 4 words; the BS
+// float program lost all 27 typemap words). Dead code BEFORE a typemap must still be removed;
+// the typemap span itself must survive verbatim.
+const synT = Int32Array.from([1, 7, 10, 0, 1, 99, 57, 1, 0, 0]); // PUSH7 PRINT HALT | dead PUSH99 | TYPEMAP(ntot=1)
+const beforeT = await runIR(Int32Array.from(synT), 0);
+const { words: optT, main: mainT, changed: changedT } = await optimizeIR(Int32Array.from(synT), 0);
+const afterT = await runIR(optT, mainT);
+const tailT = [...optT.slice(4)];
+const okT = beforeT === "7\n" && afterT === "7\n" && optT.length === 8 && changedT === 2
+  && tailT.join(",") === "57,1,0,0";
+console.log(`${okT ? 'PASS' : 'FAIL'}  synth-typemap-keeproot  changed=${changedT}  len=${optT.length}  tail=[${tailT}]  out=${JSON.stringify(afterT)}`);
+if (okT) { pass++; totalWordsRemoved += (synT.length - optT.length); } else fail++;
+
+// 9. TYPEMAP count preserved on a real compiled float program (typemaps come from the front-end).
+const srcFloat = `
+fn scale(x: Float) -> Float {
+  return x * 2.0
+}
+fn main(c: Console) -> Unit {
+  c.print_int(round(scale(21.0)))
+}
+`;
+const irF = await compileToIR(srcFloat);
+const count57 = (ws) => { let n = 0, pc = 0; while (pc < ws.length) { const op = ws[pc]; if (op === 57) { n++; pc += 3 + ws[pc + 1]; } else { const one = [1,2,6,7,13,14,15,25].includes(op), two = [8,29].includes(op); pc += 1 + (one ? 1 : two ? 2 : 0); } } return n; };
+const { words: optF, changed: changedF } = await optimizeIR(irF.words, irF.main);
+const okF = count57(optF) === count57(irF.words) && count57(irF.words) > 0;
+console.log(`${okF ? 'PASS' : 'FAIL'}  synth-typemap-count-preserved  typemaps=${count57(irF.words)}->${count57(optF)}  changed=${changedF}`);
+if (okF) pass++; else fail++;
+
+console.log(`\n${pass}/${SCALAR.length + 10} checks: optimize.lm (Lumen) is output-identical to the interpreter; size delta: -${totalWordsRemoved} words, total folds: ${totalFolds} (fail ${fail})`);
 process.exit(fail === 0 ? 0 : 1);

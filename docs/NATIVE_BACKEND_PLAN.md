@@ -45,8 +45,10 @@ target on the machine that exists today). Build log: [`../native/HISTORY.md`](..
   v2 `fib` ~110% of hand-C. Bit-identity held throughout (11/11 float programs, byte-for-byte).
 - **Optimizer default-on in the build path (#185).** Every built binary now runs
   compileToIR -> optimizeIR -> emit; passes A+B+C gated 19/19 (`optimize_diff.mjs`). Known
-  conservatism: TYPEMAP-bearing float programs currently no-op (changed=0) because DCE would
-  otherwise touch TYPEMAP metadata; making TYPEMAP an explicit keep-root is queued.
+  hazard, closed 2026-07-01: DCE was DELETING TYPEMAP metadata (the BS program lost all 27
+  typemap words in the build path; harmless only because the float corpus uses all-zero type
+  codes, which the emitter's no-typemap fallback happens to return). TYPEMAP is now an explicit
+  keep-root scan barrier in optimize.lm, gated by two synthetics.
 - **Not done (honest):** full `lumenc.lm` self-host (multi-week); text/heap (15-18,28) + sum
   (25-27) emit in `emit_fn.lm` (the 6 excluded conformance programs); ditching clang (M4).
 

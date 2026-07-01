@@ -233,6 +233,16 @@ fn optimize_passes(c: Console) -> Int {
             }
           }
         }
+        # TYPEMAP(57) keep-root: typemap records are EMITTER METADATA (emit_fn.lm derives
+        # slot/return types by scanning forward from each function entry to the first op-57,
+        # fenced by the next RESERVE). They usually sit after a RET, control-flow-unreachable,
+        # so DCE would eat them and break the emitter's type derivation. Marking the op word
+        # as a scan barrier makes DCE stop there (the whole span survives: the scan never
+        # resumes past a barrier), relocation keeps them, and nothing jumps to them so no
+        # operand rewrite applies.
+        if op == 57 {
+          set_target(pc, 1)
+        }
         pc = pc + 1 + oplen(pc, op)
       }
     }
