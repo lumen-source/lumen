@@ -24,6 +24,8 @@ const binary = wabt.parseWat('lumenc.wat', wat).toBinary({}).buffer;
 const EMIT_SRC = fs.readFileSync(new URL('./emit.lm', import.meta.url), 'utf8');
 const EMIT_FN_SRC = fs.readFileSync(new URL('./emit_fn.lm', import.meta.url), 'utf8');
 const OPT_SRC = fs.readFileSync(new URL('./optimize.lm', import.meta.url), 'utf8');
+const EMIT_LLVM_SRC = fs.readFileSync(new URL('./emit_llvm.lm', import.meta.url), 'utf8');
+
 
 export async function freshInstance() {
   let out = '';
@@ -263,3 +265,46 @@ export async function buildAndRun(src, opt = '-O2') {
   }
   return { stdout, exit, csrc };
 }
+
+async function emitLlvmWith(emitterSrc, words, main) {
+  const I = await freshInstance();
+  const len = writeSrc(I, emitterSrc);
+  I.ex.compile(len);
+  if (I.ex.dbg_nerr() > 0) throw new Error(`emitter compile: ${I.ex.dbg_nerr()} error(s)`);
+  const m32 = new Int32Array(I.ex.mem.buffer);
+  m32[SCRATCH / 4] = words.length;
+  m32[SCRATCH / 4 + 1] = main;
+  for (let i = 0; i < words.length; i++) m32[SCRATCH / 4 + 2 + i] = words[i];
+
+  // No strings/sidecar for LLVM scaffold at this checkpoint
+  const offset_words = 2 + words.length;
+  m32[SCRATCH / 4 + offset_words] = 0; // dir_word_count = 0
+
+  I.resetOut();
+  if (I.ex.set_fuel_max) I.ex.set_fuel_max(4000000000n);
+  I.ex.run(I.ex.dbg_main());
+  return I.getOut();
+}
+
+export async function buildAndRunLlvm(src, opt = '-O3') {
+  const ir = await compileToIR(src);
+  const { words, main } = await optimizeIR(ir.words, ir.main);
+  const ll_src = await emitLlvmWith(EMIT_LLVM_SRC, words, main);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumen-llvm-'));
+  const llfile = path.join(dir, 'p.ll'), bin = path.join(dir, 'p');
+  fs.writeFileSync(llfile, ll_src);
+  try {
+    execFileSync('clang', [opt, '-o', bin, llfile], { stdio: ['ignore', 'ignore', 'pipe'] });
+  } catch (e) {
+    throw new Error(`clang failed: ${String(e.stderr || e.message).slice(0, 300)}`);
+  }
+  let stdout = '', exit = 0;
+  try {
+    stdout = execFileSync(bin, { encoding: 'utf8' });
+  } catch (e) {
+    stdout = e.stdout ? e.stdout.toString() : '';
+    exit = typeof e.status === 'number' ? e.status : 1;
+  }
+  return { stdout, exit, ll_src };
+}
+
