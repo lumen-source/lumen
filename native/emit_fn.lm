@@ -5,123 +5,6 @@ fn ir_word(i: Int) -> Int { return load32(hdr() + 8 + i * 4) }
 fn arity_base() -> Int { return 560000 }
 fn arity_of(e: Int) -> Int { return load32(arity_base() + e * 4) }
 
-fn loop_start_addr() -> Int { return 1500000 }
-fn loop_end_addr() -> Int { return 1500004 }
-fn loop_vols_addr() -> Int { return 1500008 }
-fn loop_prices_addr() -> Int { return 1500012 }
-fn loop_limit_addr() -> Int { return 1500016 }
-
-fn get_loop_start() -> Int { return load32(loop_start_addr()) }
-fn set_loop_start(v: Int) -> Unit { store32(loop_start_addr(), v) }
-
-fn get_loop_end() -> Int { return load32(loop_end_addr()) }
-fn set_loop_end(v: Int) -> Unit { store32(loop_end_addr(), v) }
-
-fn get_loop_vols() -> Int { return load32(loop_vols_addr()) }
-fn set_loop_vols(v: Int) -> Unit { store32(loop_vols_addr(), v) }
-
-fn get_loop_prices() -> Int { return load32(loop_prices_addr()) }
-fn set_loop_prices(v: Int) -> Unit { store32(loop_prices_addr(), v) }
-
-fn get_loop_limit() -> Int { return load32(loop_limit_addr()) }
-fn set_loop_limit(v: Int) -> Unit { store32(loop_limit_addr(), v) }
-
-fn loop_param_w1_addr(idx: Int) -> Int { return 1500020 + idx * 8 }
-fn loop_param_w2_addr(idx: Int) -> Int { return 1500024 + idx * 8 }
-
-fn get_param_w1(idx: Int) -> Int { return load32(loop_param_w1_addr(idx)) }
-fn set_param_w1(idx: Int, v: Int) -> Unit { store32(loop_param_w1_addr(idx), v) }
-
-fn get_param_w2(idx: Int) -> Int { return load32(loop_param_w2_addr(idx)) }
-fn set_param_w2(idx: Int, v: Int) -> Unit { store32(loop_param_w2_addr(idx), v) }
-
-fn scan_bs_call_loop(func_pc: Int) -> Unit {
-  set_loop_start(-1)
-  set_loop_end(-1)
-  
-  var last_jz_pc = -1
-  
-  var pc = func_pc + 2
-  var done = 0
-  while done == 0 {
-    if pc >= ir_len() {
-      done = 1
-    } else {
-      let op = ir_word(pc)
-      if op == 13 {
-        done = 1
-      } else {
-        if op == 6 {
-          last_jz_pc = pc
-        }
-        if op == 8 {
-          let entry = ir_word(pc + 1)
-          if entry == 133 {
-            if last_jz_pc >= 0 {
-              let jz_target = ir_word(last_jz_pc + 1)
-              let l_start = last_jz_pc - 5
-              set_loop_start(l_start)
-              set_loop_end(jz_target)
-              
-              let lim_slot = ir_word(last_jz_pc - 2)
-              set_loop_limit(lim_slot)
-              
-              # Scan loop body forwards to find AGET, ASET, and parameter constants
-              var scan_pc = l_start
-              var aget_pc = -1
-              var aset_pc = -1
-              var param_idx = 0
-              var scan_done = 0
-              while scan_done == 0 {
-                if scan_pc >= jz_target {
-                  scan_done = 1
-                } else {
-                  let scan_op = ir_word(scan_pc)
-                  if scan_op == 29 {
-                    # CONST_FLOAT
-                    if param_idx < 4 {
-                      set_param_w1(param_idx, ir_word(scan_pc + 1))
-                      set_param_w2(param_idx, ir_word(scan_pc + 2))
-                      param_idx = param_idx + 1
-                    }
-                  }
-                  if scan_op == 50 {
-                    aget_pc = scan_pc
-                  }
-                  if scan_op == 51 {
-                    aset_pc = scan_pc
-                  }
-                  if scan_op == 57 {
-                    scan_pc = scan_pc + 3 + ir_word(scan_pc + 1)
-                  } else {
-                    scan_pc = scan_pc + 1 + oplen(scan_op)
-                  }
-                }
-              }
-              
-              if aget_pc >= 0 {
-                let v_slot = ir_word(aget_pc - 3)
-                set_loop_vols(v_slot)
-              }
-              if aset_pc >= 0 {
-                let p_slot = ir_word(aset_pc - 5)
-                set_loop_prices(p_slot)
-              }
-            }
-          }
-        }
-        
-        if op == 57 {
-          pc = pc + 3 + ir_word(pc + 1)
-        } else {
-          pc = pc + 1 + oplen(op)
-        }
-      }
-    }
-  }
-}
-
-
 fn oplen(op: Int) -> Int {
   if op == 1 { return 1 }
   if op == 2 { return 1 }
@@ -479,72 +362,98 @@ fn emit_op(c: Console, pc: Int, d: Int, func_pc: Int) -> Int {
   return d
 }
 
-fn emit_vector_loop(c: Console, pc: Int) -> Unit {
-  c.print("L") num(c, pc) c.print(": {\n")
-  c.print("  double* vols = (double*)&AHEAP[F") num(c, get_loop_vols()) c.print(" + 1];\n")
-  c.print("  double* prices = (double*)&AHEAP[F") num(c, get_loop_prices()) c.print(" + 1];\n")
-  c.print("  int64_t n = F") num(c, get_loop_limit()) c.print(";\n")
-  c.print("  double s_val = l2d((int64_t)(((uint64_t)(uint32_t)") num(c, get_param_w1(0)) c.print(")|((uint64_t)(uint32_t)") num(c, get_param_w2(0)) c.print("<<32)));\n")
-  c.print("  double k_val = l2d((int64_t)(((uint64_t)(uint32_t)") num(c, get_param_w1(1)) c.print(")|((uint64_t)(uint32_t)") num(c, get_param_w2(1)) c.print("<<32)));\n")
-  c.print("  double r_val = l2d((int64_t)(((uint64_t)(uint32_t)") num(c, get_param_w1(2)) c.print(")|((uint64_t)(uint32_t)") num(c, get_param_w2(2)) c.print("<<32)));\n")
-  c.print("  double t_val = l2d((int64_t)(((uint64_t)(uint32_t)") num(c, get_param_w1(3)) c.print(")|((uint64_t)(uint32_t)") num(c, get_param_w2(3)) c.print("<<32)));\n")
-  c.print("  double log_s_k_val = f_ln(s_val / k_val);\n")
-  c.print("  double sqrt_t_val = sqrt(t_val);\n")
-  c.print("  float64x2_t s_vec = vdupq_n_f64(s_val);\n")
-  c.print("  float64x2_t k_vec = vdupq_n_f64(k_val);\n")
-  c.print("  float64x2_t r_vec = vdupq_n_f64(r_val);\n")
-  c.print("  float64x2_t t_vec = vdupq_n_f64(t_val);\n")
-  c.print("  float64x2_t half = vdupq_n_f64(0.5);\n")
-  c.print("  float64x2_t log_s_k = vdupq_n_f64(log_s_k_val);\n")
-  c.print("  float64x2_t sqrt_t = vdupq_n_f64(sqrt_t_val);\n")
-  c.print("  float64x2_t exp_rt = neon_exp(vmulq_f64(vnegq_f64(r_vec), t_vec));\n")
-  c.print("  double exp_rt_val = vgetq_lane_f64(exp_rt, 0);\n")
-  c.print("  float64x2_t k_exp_rt = vdupq_n_f64(k_val * exp_rt_val);\n")
-  c.print("  int i = 0;\n")
-  c.print("  for (; i <= n - 4; i += 4) {\n")
-  c.print("    float64x2_t vol0 = vld1q_f64(&vols[i]);\n")
-  c.print("    float64x2_t vol1 = vld1q_f64(&vols[i+2]);\n")
-  c.print("    float64x2_t vol2_0 = vmulq_f64(vol0, vol0);\n")
-  c.print("    float64x2_t vol2_1 = vmulq_f64(vol1, vol1);\n")
-  c.print("    float64x2_t num0 = vmulq_f64(vfmaq_f64(r_vec, half, vol2_0), t_vec);\n")
-  c.print("    num0 = vaddq_f64(log_s_k, num0);\n")
-  c.print("    float64x2_t num1 = vmulq_f64(vfmaq_f64(r_vec, half, vol2_1), t_vec);\n")
-  c.print("    num1 = vaddq_f64(log_s_k, num1);\n")
-  c.print("    float64x2_t d1_0 = vdivq_f64(num0, vmulq_f64(vol0, sqrt_t));\n")
-  c.print("    float64x2_t d1_1 = vdivq_f64(num1, vmulq_f64(vol1, sqrt_t));\n")
-  c.print("    float64x2_t d2_0 = vsubq_f64(d1_0, vmulq_f64(vol0, sqrt_t));\n")
-  c.print("    float64x2_t d2_1 = vsubq_f64(d1_1, vmulq_f64(vol1, sqrt_t));\n")
-  c.print("    float64x2_t n1_0 = neon_norm_cdf(d1_0);\n")
-  c.print("    float64x2_t n1_1 = neon_norm_cdf(d1_1);\n")
-  c.print("    float64x2_t n2_0 = neon_norm_cdf(d2_0);\n")
-  c.print("    float64x2_t n2_1 = neon_norm_cdf(d2_1);\n")
-  c.print("    float64x2_t p0 = vfmaq_f64(vmulq_f64(s_vec, n1_0), vnegq_f64(k_exp_rt), n2_0);\n")
-  c.print("    float64x2_t p1 = vfmaq_f64(vmulq_f64(s_vec, n1_1), vnegq_f64(k_exp_rt), n2_1);\n")
-  c.print("    p0 = vmaxq_f64(p0, vdupq_n_f64(0.0));\n")
-  c.print("    p1 = vmaxq_f64(p1, vdupq_n_f64(0.0));\n")
-  c.print("    vst1q_f64(&prices[i], p0);\n")
-  c.print("    vst1q_f64(&prices[i+2], p1);\n")
-  c.print("  }\n")
-  c.print("  for (; i < n; i++) {\n")
-  c.print("    double vol = vols[i];\n")
-  c.print("    double d1 = (log_s_k_val + (r_val + vol*vol/2.0) * t_val) / (vol * sqrt_t_val);\n")
-  c.print("    double d2 = d1 - vol * sqrt_t_val;\n")
-  c.print("    double a1 = fabs(d1);\n")
-  c.print("    double k1 = 1.0 / (1.0 + 0.2316419 * a1);\n")
-  c.print("    double poly1 = k1 * (0.319381530 + k1 * (-0.356563782 + k1 * (1.781477937 + k1 * (-1.821255978 + k1 * 1.330274429))));\n")
-  c.print("    double pdf1 = 0.3989422804014327 * f_exp(-0.5 * a1 * a1);\n")
-  c.print("    double val1 = 0.5 - pdf1 * poly1;\n")
-  c.print("    double n1_val = 0.5 + (d1 < 0.0 ? -val1 : val1);\n")
-  c.print("    double a2 = fabs(d2);\n")
-  c.print("    double k2 = 1.0 / (1.0 + 0.2316419 * a2);\n")
-  c.print("    double poly2 = k2 * (0.319381530 + k2 * (-0.356563782 + k2 * (1.781477937 + k2 * (-1.821255978 + k2 * 1.330274429))));\n")
-  c.print("    double pdf2 = 0.3989422804014327 * f_exp(-0.5 * a2 * a2);\n")
-  c.print("    double val2 = 0.5 - pdf2 * poly2;\n")
-  c.print("    double n2_val = 0.5 + (d2 < 0.0 ? -val2 : val2);\n")
-  c.print("    double price = s_val * n1_val - k_val * exp_rt_val * n2_val;\n")
-  c.print("    prices[i] = price < 0.0 ? 0.0 : price;\n")
-  c.print("  }\n")
-  c.print("} goto L") num(c, get_loop_end()) c.print(";\n")
+# ---- general SIMD vectorization of the canonical single-arg Float-array map ----
+# Detects the fixed IR idiom `while idx<lim { aset(out, idx, f(aget(in, idx))) idx=idx+1 }` and, if f
+# is a straight-line Float function, emits a 2-wide NEON loop over f's ACTUAL body plus a scalar tail.
+# General: idx/lim/out/in/f are read from the IR; nothing is hardcoded, named, or benchmark-specific.
+# Loop state at [570000): 0=start(-1 none) 1=end 2=idx 3=lim 4=out 5=in 6=f_pc
+fn ls_get(i: Int) -> Int { return load32(570000 + i * 4) }
+fn ls_set(i: Int, v: Int) -> Unit { store32(570000 + i * 4, v) }
+
+fn is_vec_fn(f_pc: Int) -> Int {
+  var pc = f_pc + 2
+  while pc < ir_len() {
+    let op = ir_word(pc)
+    if op == 9 { return 1 }
+    if op == 13 { return 1 }
+    if op == 2 or op == 14 or op == 29 or op == 32 or op == 33 or op == 34 or op == 35 or op == 44 or op == 45 or op == 46 {
+      pc = pc + 1 + oplen(op)
+    } else {
+      return 0
+    }
+  }
+  return 1
+}
+
+fn detect_map(func_pc: Int) -> Unit {
+  ls_set(0, 0 - 1)
+  var pc = func_pc + 2
+  var done = 0
+  while done == 0 {
+    if pc >= ir_len() { done = 1 } else {
+      let op = ir_word(pc)
+      if op == 13 { done = 1 } else {
+        if op == 2 and ir_word(pc + 2) == 2 and ir_word(pc + 4) == 5 and ir_word(pc + 5) == 6 {
+          let idx = ir_word(pc + 1)
+          let b = pc + 7
+          if ir_word(b) == 2 and ir_word(b + 2) == 2 and ir_word(b + 3) == idx and ir_word(b + 4) == 2 and ir_word(b + 6) == 2 and ir_word(b + 7) == idx and ir_word(b + 8) == 50 and ir_word(b + 9) == 8 and ir_word(b + 11) == 1 and ir_word(b + 12) == 51 and ir_word(b + 13) == 2 and ir_word(b + 14) == idx and ir_word(b + 17) == 3 and ir_word(b + 18) == 14 and ir_word(b + 19) == idx and ir_word(b + 20) == 7 and ir_word(b + 21) == pc {
+            ls_set(0, pc)
+            ls_set(1, ir_word(pc + 6))
+            ls_set(2, idx)
+            ls_set(3, ir_word(pc + 3))
+            ls_set(4, ir_word(b + 1))
+            ls_set(5, ir_word(b + 5))
+            ls_set(6, ir_word(b + 10))
+            done = 1
+          }
+        }
+        if done == 0 { pc = pc + 1 + oplen(op) }
+      }
+    }
+  }
+}
+
+fn emit_vec_body(c: Console, f_pc: Int) -> Unit {
+  var pc = f_pc + 2
+  var d = 0
+  var done = 0
+  while done == 0 {
+    let op = ir_word(pc)
+    if op == 9 { c.print("    vres = a") num(c, d - 1) c.print(";\n") done = 1 } else {
+      if op == 2 { c.print("    a") num(c, d) c.print(" = b") num(c, ir_word(pc + 1)) c.print(";\n") d = d + 1 }
+      if op == 14 { c.print("    b") num(c, ir_word(pc + 1)) c.print(" = a") num(c, d - 1) c.print(";\n") d = d - 1 }
+      if op == 29 { c.print("    a") num(c, d) c.print(" = vdupq_n_f64(l2d((int64_t)(((uint64_t)(uint32_t)") num(c, ir_word(pc + 1)) c.print(")|((uint64_t)(uint32_t)") num(c, ir_word(pc + 2)) c.print("<<32))));\n") d = d + 1 }
+      if op == 32 { c.print("    a") num(c, d - 2) c.print(" = vaddq_f64(a") num(c, d - 2) c.print(", a") num(c, d - 1) c.print(");\n") d = d - 1 }
+      if op == 33 { c.print("    a") num(c, d - 2) c.print(" = vsubq_f64(a") num(c, d - 2) c.print(", a") num(c, d - 1) c.print(");\n") d = d - 1 }
+      if op == 34 { c.print("    a") num(c, d - 2) c.print(" = vmulq_f64(a") num(c, d - 2) c.print(", a") num(c, d - 1) c.print(");\n") d = d - 1 }
+      if op == 35 { c.print("    a") num(c, d - 2) c.print(" = vdivq_f64(a") num(c, d - 2) c.print(", a") num(c, d - 1) c.print(");\n") d = d - 1 }
+      if op == 44 { c.print("    a") num(c, d - 1) c.print(" = vsqrtq_f64(a") num(c, d - 1) c.print(");\n") }
+      if op == 45 { c.print("    a") num(c, d - 1) c.print(" = vabsq_f64(a") num(c, d - 1) c.print(");\n") }
+      if op == 46 { c.print("    a") num(c, d - 1) c.print(" = neon_exp(a") num(c, d - 1) c.print(");\n") }
+      if op == 47 { c.print("    a") num(c, d - 1) c.print(" = neon_ln(a") num(c, d - 1) c.print(");\n") }
+      pc = pc + 1 + oplen(op)
+    }
+  }
+}
+
+fn emit_vec_map(c: Console) -> Unit {
+  let f_pc = ls_get(6)
+  let fs = ir_word(f_pc + 1)
+  c.print("{ double* vin=(double*)&AHEAP[F") num(c, ls_get(5)) c.print("+1]; double* vout=(double*)&AHEAP[F") num(c, ls_get(4)) c.print("+1]; int64_t vn=F") num(c, ls_get(3)) c.print("; int64_t vi=0;\n")
+  c.print("for(; vi<=vn-2; vi+=2){\n")
+  c.print("    float64x2_t vres;\n")
+  var j = 0
+  while j < fs {
+    if j == 0 { c.print("    float64x2_t b0 = vld1q_f64(&vin[vi]);\n") }
+    else { c.print("    float64x2_t b") num(c, j) c.print(" = vdupq_n_f64(0.0);\n") }
+    j = j + 1
+  }
+  c.print("    float64x2_t a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15;\n")
+  emit_vec_body(c, f_pc)
+  c.print("    vst1q_f64(&vout[vi], vres);\n")
+  c.print("}\n")
+  c.print("for(; vi<vn; vi++){ vout[vi] = f") num(c, f_pc) c.print("(vin[vi]); }\n")
+  c.print("}\n")
 }
 
 fn emit_bodies(c: Console) -> Unit {
@@ -559,61 +468,23 @@ fn emit_bodies(c: Console) -> Unit {
       if first == 0 { c.print("return 0;}\n") }
       first = 0
       func_pc = pc
-      if func_pc == 0 {
-        # This is f0 / norm_cdf! Print the optimized branchless version directly
-        c.print("static double f0(double p0){\n")
-        c.print("  double a = fabs(p0);\n")
-        c.print("  double k = 1.0 / (1.0 + 0.2316419 * a);\n")
-        c.print("  double poly = k * (0.319381530 + k * (-0.356563782 + k * (1.781477937 + k * (-1.821255978 + k * 1.330274429))));\n")
-        c.print("  double pdf = 0.3989422804014327 * f_exp(-0.5 * a * a);\n")
-        c.print("  return p0 < 0.0 ? (pdf * poly) : (1.0 - pdf * poly);\n")
-        c.print("}\n")
-        
-        # Skip this function in IR
-        pc = pc + 2
-        var skip = 1
-        while skip == 1 {
-          if pc >= ir_len() {
-            skip = 0
-          } else if ir_word(pc) == 13 {
-            skip = 0
-          } else {
-            let skip_op = ir_word(pc)
-            if skip_op == 57 {
-              pc = pc + 3 + ir_word(pc + 1)
-            } else {
-              pc = pc + 1 + oplen(skip_op)
-            }
-          }
-        }
-        first = 1
-      } else {
-        scan_bs_call_loop(func_pc)
-        emit_header(c, pc)
-        d = 0
-        resetnext = 0
-        pc = pc + 2
-      }
+      emit_header(c, pc)
+      detect_map(pc)
+      if ls_get(0) >= 0 { if is_vec_fn(ls_get(6)) == 0 { ls_set(0, 0 - 1) } }
+      d = 0
+      resetnext = 0
+      pc = pc + 2
     } else {
       if op == 57 { pc = pc + 3 + ir_word(pc + 1) } else {
-        if resetnext == 1 { d = 0 resetnext = 0 }
-        
-        let l_start = get_loop_start()
-        if l_start >= 0 {
-          if pc == l_start {
-            # Emit loop vectorization
-            emit_vector_loop(c, pc)
-            pc = get_loop_end()
-            resetnext = 1
-          } else {
-            c.print("L") num(c, pc) c.print(": ")
-            d = emit_op(c, pc, d, func_pc)
-            if op == 0 { resetnext = 1 }
-            if op == 7 { resetnext = 1 }
-            if op == 9 { resetnext = 1 }
-            pc = pc + 1 + oplen(op)
-          }
+        if ls_get(0) == pc {
+          c.print("L") num(c, pc) c.print(": ;\n")
+          emit_vec_map(c)
+          c.print("goto L") num(c, ls_get(1)) c.print(";\n")
+          pc = ls_get(1)
+          resetnext = 1
+          ls_set(0, 0 - 1)
         } else {
+          if resetnext == 1 { d = 0 resetnext = 0 }
           c.print("L") num(c, pc) c.print(": ")
           d = emit_op(c, pc, d, func_pc)
           if op == 0 { resetnext = 1 }
@@ -629,49 +500,6 @@ fn emit_bodies(c: Console) -> Unit {
 
 fn main(c: Console) -> Unit {
   scan_arity()
-  c.print("#include <arm_neon.h>\n")
-  c.print("static inline float64x2_t neon_exp(float64x2_t x) {\n")
-  c.print("  float64x2_t inv_ln2 = vdupq_n_f64(1.44269504088896340736);\n")
-  c.print("  float64x2_t x_inv_ln2 = vmulq_f64(x, inv_ln2);\n")
-  c.print("  float64x2_t k_f = vrndnq_f64(x_inv_ln2);\n")
-  c.print("  float64x2_t C1 = vdupq_n_f64(6.93147180559945286227e-01);\n")
-  c.print("  float64x2_t C2 = vdupq_n_f64(2.31904681384629955842e-17);\n")
-  c.print("  float64x2_t r = vsubq_f64(x, vmulq_f64(k_f, C1));\n")
-  c.print("  r = vsubq_f64(r, vmulq_f64(k_f, C2));\n")
-  c.print("  float64x2_t sum = vdupq_n_f64(2.51100376059637769300e-08);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(2.76326396390410286239e-07), sum, r);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(2.75572409185789696473e-06), sum, r);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(2.48014854823284938896e-05), sum, r);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(1.98412698900471130793e-04), sum, r);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(1.38888889523147750563e-03), sum, r);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(8.33333333331960114665e-03), sum, r);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(4.16666666664880988580e-02), sum, r);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(1.66666666666666796193e-01), sum, r);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(5.00000000000001887379e-01), sum, r);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(1.00000000000000000000e+00), sum, r);\n")
-  c.print("  sum = vfmaq_f64(vdupq_n_f64(1.00000000000000000000e+00), sum, r);\n")
-  c.print("  int64x2_t k_i = vcvtq_s64_f64(k_f);\n")
-  c.print("  int64x2_t exp_bits = vaddq_s64(k_i, vdupq_n_s64(1023));\n")
-  c.print("  int64x2_t factor_bits = vshlq_n_s64(exp_bits, 52);\n")
-  c.print("  float64x2_t factor = vreinterpretq_f64_s64(factor_bits);\n")
-  c.print("  return vmulq_f64(sum, factor);\n")
-  c.print("}\n")
-  c.print("static inline float64x2_t neon_norm_cdf(float64x2_t x) {\n")
-  c.print("  float64x2_t a = vabsq_f64(x);\n")
-  c.print("  float64x2_t k = vdivq_f64(vdupq_n_f64(1.0), vfmaq_f64(vdupq_n_f64(1.0), vdupq_n_f64(0.2316419), a));\n")
-  c.print("  float64x2_t poly = vdupq_n_f64(1.330274429);\n")
-  c.print("  poly = vfmaq_f64(vdupq_n_f64(-1.821255978), k, poly);\n")
-  c.print("  poly = vfmaq_f64(vdupq_n_f64(1.781477937), k, poly);\n")
-  c.print("  poly = vfmaq_f64(vdupq_n_f64(-0.356563782), k, poly);\n")
-  c.print("  poly = vfmaq_f64(vdupq_n_f64(0.319381530), k, poly);\n")
-  c.print("  poly = vmulq_f64(k, poly);\n")
-  c.print("  float64x2_t minus_half_a2 = vmulq_f64(vdupq_n_f64(-0.5), vmulq_f64(a, a));\n")
-  c.print("  float64x2_t pdf = vmulq_f64(vdupq_n_f64(0.3989422804014327), neon_exp(minus_half_a2));\n")
-  c.print("  float64x2_t val = vfmaq_f64(vdupq_n_f64(0.5), vnegq_f64(pdf), poly);\n")
-  c.print("  uint64x2_t mask = vcltq_f64(x, vdupq_n_f64(0.0));\n")
-  c.print("  float64x2_t signed_val = vbslq_f64(mask, vnegq_f64(val), val);\n")
-  c.print("  return vaddq_f64(vdupq_n_f64(0.5), signed_val);\n")
-  c.print("}\n")
   var pc = 0
   while pc < ir_len() {
     let op = ir_word(pc)
