@@ -34,11 +34,13 @@ const N = 2000000;
 // vol perturbed by i so clang cannot hoist the pure call out of the loop; same pattern on both sides.
 const bsLumen = `
 fn norm_cdf(x: Float) -> Float {
-  if x < 0.0 { return 1.0 - norm_cdf(-x) }
-  let k: Float = 1.0 / (1.0 + 0.2316419 * x)
+  let abs_x: Float = abs(x)
+  let k: Float = 1.0 / (1.0 + 0.2316419 * abs_x)
   let poly: Float = k * (0.319381530 + k * (-0.356563782 + k * (1.781477937 + k * (-1.821255978 + k * 1.330274429))))
   let pdf: Float = (1.0 / sqrt(2.0 * 3.14159265358979)) * exp(-(x * x) / 2.0)
-  return 1.0 - pdf * poly
+  let val: Float = 1.0 - pdf * poly
+  if x < 0.0 { return 1.0 - val }
+  return val
 }
 fn bs_call(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
   let d1: Float = (ln(s / k) + (r + vol * vol / 2.0) * t) / (vol * sqrt(t))

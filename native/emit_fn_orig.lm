@@ -1,0 +1,235 @@
+# comment
+fn hdr() -> Int { return 524288 }
+fn ir_len() -> Int { return load32(hdr()) }
+fn ir_main() -> Int { return load32(hdr() + 4) }
+fn ir_word(i: Int) -> Int { return load32(hdr() + 8 + i * 4) }
+fn arity_base() -> Int { return 560000 }
+fn arity_of(e: Int) -> Int { return load32(arity_base() + e * 4) }
+
+fn oplen(op: Int) -> Int {
+  if op == 1 { return 1 }
+  if op == 2 { return 1 }
+  if op == 6 { return 1 }
+  if op == 7 { return 1 }
+  if op == 8 { return 2 }
+  if op == 13 { return 1 }
+  if op == 14 { return 1 }
+  if op == 29 { return 2 }
+  return 0
+}
+
+fn rettype_of(func_pc: Int) -> Int {
+  var pc = func_pc + 2
+  while pc < ir_len() {
+    let op = ir_word(pc)
+    if op == 13 { return 0 }
+    if op == 57 { return ir_word(pc + 2) }
+    pc = pc + 1 + oplen(op)
+  }
+  return 0
+}
+
+fn type_of_slot(func_pc: Int, slot: Int) -> Int {
+  var pc = func_pc + 2
+  while pc < ir_len() {
+    let op = ir_word(pc)
+    if op == 13 { return 0 }
+    if op == 57 {
+      let ntot = ir_word(pc + 1)
+      if slot < ntot { return ir_word(pc + 3 + slot) }
+      return 0
+    }
+    pc = pc + 1 + oplen(op)
+  }
+  return 0
+}
+
+fn num(c: Console, n: Int) -> Unit { c.print(int_to_text(n)) }
+fn sl(c: Console, k: Int) -> Unit { c.print("s[") num(c, k) c.print("]") }
+fn arith(c: Console, d: Int, op: Text) -> Unit {
+  sl(c, d - 2) c.print("=(int64_t)((uint64_t)") sl(c, d - 2) c.print(op) c.print("(uint64_t)") sl(c, d - 1) c.print(");\n")
+}
+fn cmp(c: Console, d: Int, op: Text) -> Unit {
+  sl(c, d - 2) c.print("=(") sl(c, d - 2) c.print(op) sl(c, d - 1) c.print(")?1:0;\n")
+}
+fn farith(c: Console, d: Int, op: Text) -> Unit {
+  sl(c, d - 2) c.print("=d2l(l2d(") sl(c, d - 2) c.print(")") c.print(op) c.print("l2d(") sl(c, d - 1) c.print("));\n")
+}
+fn fcmp(c: Console, d: Int, op: Text) -> Unit {
+  sl(c, d - 2) c.print("=(l2d(") sl(c, d - 2) c.print(")") c.print(op) c.print("l2d(") sl(c, d - 1) c.print("))?1:0;\n")
+}
+fn fun1(c: Console, d: Int, g: Text) -> Unit {
+  sl(c, d - 1) c.print("=d2l(") c.print(g) c.print("(l2d(") sl(c, d - 1) c.print(")));\n")
+}
+
+fn scan_arity() -> Unit {
+  var pc = 0
+  while pc < ir_len() {
+    let op = ir_word(pc)
+    if op == 8 { store32(arity_base() + ir_word(pc + 1) * 4, ir_word(pc + 2)) }
+    if op == 57 { pc = pc + 3 + ir_word(pc + 1) } else { pc = pc + 1 + oplen(op) }
+  }
+}
+
+fn emit_sig(c: Console, pc: Int) -> Unit {
+  let arity = arity_of(pc)
+  let ret_t = rettype_of(pc)
+  if ret_t == 1 { c.print("static double f") } else { c.print("static int64_t f") }
+  num(c, pc) c.print("(")
+  var j = 0
+  while j < arity {
+    if j > 0 { c.print(",") }
+    if type_of_slot(pc, j) == 1 { c.print("double p") } else { c.print("int64_t p") }
+    num(c, j)
+    j = j + 1
+  }
+  if arity == 0 { c.print("void") }
+  c.print(")")
+}
+
+fn emit_header(c: Console, pc: Int) -> Unit {
+  let fs = ir_word(pc + 1)
+  let arity = arity_of(pc)
+  var fsd = fs
+  if fsd < 1 { fsd = 1 }
+  emit_sig(c, pc)
+  c.print("{int64_t s[256];\n")
+  var j = 0
+  while j < fsd {
+    if type_of_slot(pc, j) == 1 {
+      c.print("double F") num(c, j) c.print("=0.0;\n")
+    } else {
+      c.print("int64_t F") num(c, j) c.print("=0;\n")
+    }
+    j = j + 1
+  }
+  j = 0
+  while j < arity {
+    c.print("F") num(c, j) c.print("=p") num(c, j) c.print(";\n")
+    j = j + 1
+  }
+}
+
+fn emit_op(c: Console, pc: Int, d: Int, func_pc: Int) -> Int {
+  let op = ir_word(pc)
+  if op == 0 { c.print("exit(0);\n") return d }
+  if op == 1 { sl(c, d) c.print("=") num(c, ir_word(pc + 1)) c.print(";\n") return d + 1 }
+  if op == 2 {
+    let k = ir_word(pc + 1)
+    if type_of_slot(func_pc, k) == 1 { sl(c, d) c.print("=d2l(F") num(c, k) c.print(");\n") }
+    else { sl(c, d) c.print("=F") num(c, k) c.print(";\n") }
+    return d + 1
+  }
+  if op == 3 { arith(c, d, "+") return d - 1 }
+  if op == 4 { arith(c, d, "-") return d - 1 }
+  if op == 11 { arith(c, d, "*") return d - 1 }
+  if op == 5 { cmp(c, d, "<") return d - 1 }
+  if op == 19 { cmp(c, d, "==") return d - 1 }
+  if op == 21 { cmp(c, d, "<=") return d - 1 }
+  if op == 6 { c.print("if(") sl(c, d - 1) c.print("==0)goto L") num(c, ir_word(pc + 1)) c.print(";\n") return d - 1 }
+  if op == 7 { c.print("goto L") num(c, ir_word(pc + 1)) c.print(";\n") return d }
+  if op == 9 {
+    let ret_t = rettype_of(func_pc)
+    if ret_t == 1 { c.print("return l2d(") sl(c, d - 1) c.print(");\n") }
+    else { c.print("return ") sl(c, d - 1) c.print(";\n") }
+    return d
+  }
+  if op == 10 { c.print("pic(") sl(c, d - 1) c.print(");\n") return d - 1 }
+  if op == 14 {
+    let k = ir_word(pc + 1)
+    if type_of_slot(func_pc, k) == 1 { c.print("F") num(c, k) c.print("=l2d(") sl(c, d - 1) c.print(");\n") }
+    else { c.print("F") num(c, k) c.print("=") sl(c, d - 1) c.print(";\n") }
+    return d - 1
+  }
+  if op == 24 {
+    c.print("if(") sl(c, d - 1) c.print("==0){fflush(stdout);abort();}") sl(c, d - 2) c.print("=") sl(c, d - 2) c.print("%") sl(c, d - 1) c.print(";\n")
+    return d - 1
+  }
+  if op == 8 {
+    let entry = ir_word(pc + 1)
+    let argc = ir_word(pc + 2)
+    let ret_t = rettype_of(entry)
+    if ret_t == 1 { sl(c, d - argc) c.print("=d2l(") } else { sl(c, d - argc) c.print("=") }
+    c.print("f") num(c, entry) c.print("(")
+    var j = 0
+    while j < argc {
+      if j > 0 { c.print(",") }
+      if type_of_slot(entry, j) == 1 { c.print("l2d(") sl(c, d - argc + j) c.print(")") }
+      else { sl(c, d - argc + j) }
+      j = j + 1
+    }
+    c.print(")")
+    if ret_t == 1 { c.print(")") }
+    c.print(";\n")
+    return d - argc + 1
+  }
+  if op == 29 { sl(c, d) c.print("=(int64_t)(((uint64_t)(uint32_t)") num(c, ir_word(pc + 1)) c.print(")|((uint64_t)(uint32_t)") num(c, ir_word(pc + 2)) c.print("<<32));\n") return d + 1 }
+  if op == 30 { sl(c, d - 1) c.print("=d2l((double)") sl(c, d - 1) c.print(");\n") return d }
+  if op == 31 { sl(c, d - 2) c.print("=d2l((double)") sl(c, d - 2) c.print(");\n") return d }
+  if op == 32 { farith(c, d, "+") return d - 1 }
+  if op == 33 { farith(c, d, "-") return d - 1 }
+  if op == 34 { farith(c, d, "*") return d - 1 }
+  if op == 35 { farith(c, d, "/") return d - 1 }
+  if op == 36 { fcmp(c, d, "<")  return d - 1 }
+  if op == 37 { fcmp(c, d, "<=") return d - 1 }
+  if op == 38 { fcmp(c, d, ">")  return d - 1 }
+  if op == 39 { fcmp(c, d, ">=") return d - 1 }
+  if op == 40 { fcmp(c, d, "==") return d - 1 }
+  if op == 41 { fcmp(c, d, "!=") return d - 1 }
+  if op == 42 { sl(c, d - 1) c.print("=f2i_sat(l2d(") sl(c, d - 1) c.print("));\n") return d }
+  if op == 43 { sl(c, d - 1) c.print("=f2i_sat(floor(l2d(") sl(c, d - 1) c.print(")+0.5));\n") return d }
+  if op == 44 { fun1(c, d, "sqrt")  return d }
+  if op == 45 { fun1(c, d, "fabs")  return d }
+  if op == 46 { fun1(c, d, "f_exp") return d }
+  if op == 47 { fun1(c, d, "f_ln")  return d }
+  if op == 48 { sl(c, d - 2) c.print("=d2l(f_pow(l2d(") sl(c, d - 2) c.print("),l2d(") sl(c, d - 1) c.print(")));\n") return d - 1 }
+  if op == 49 { sl(c, d - 1) c.print("=lm_anew(") sl(c, d - 1) c.print(");\n") return d }
+  if op == 50 { sl(c, d - 2) c.print("=lm_aget(") sl(c, d - 2) c.print(",") sl(c, d - 1) c.print(");\n") return d - 1 }
+  if op == 51 { c.print("lm_aset(") sl(c, d - 3) c.print(",") sl(c, d - 2) c.print(",") sl(c, d - 1) c.print(");\n") return d - 3 }
+  if op == 52 { sl(c, d - 1) c.print("=lm_alen(") sl(c, d - 1) c.print(");\n") return d }
+  c.print("\n#error unsupported ") num(c, op) c.print("\n")
+  return d
+}
+
+fn emit_bodies(c: Console) -> Unit {
+  var pc = 0
+  var first = 1
+  var d = 0
+  var resetnext = 0
+  var func_pc = 0
+  while pc < ir_len() {
+    let op = ir_word(pc)
+    if op == 13 {
+      if first == 0 { c.print("return 0;}\n") }
+      first = 0
+      func_pc = pc
+      emit_header(c, pc)
+      d = 0
+      resetnext = 0
+      pc = pc + 2
+    } else {
+      if op == 57 { pc = pc + 3 + ir_word(pc + 1) } else {
+        if resetnext == 1 { d = 0 resetnext = 0 }
+        c.print("L") num(c, pc) c.print(": ")
+        d = emit_op(c, pc, d, func_pc)
+        if op == 0 { resetnext = 1 }
+        if op == 7 { resetnext = 1 }
+        if op == 9 { resetnext = 1 }
+        pc = pc + 1 + oplen(op)
+      }
+    }
+  }
+  if first == 0 { c.print("return 0;}\n") }
+}
+
+fn main(c: Console) -> Unit {
+  scan_arity()
+  var pc = 0
+  while pc < ir_len() {
+    let op = ir_word(pc)
+    if op == 13 { emit_sig(c, pc) c.print(";\n") }
+    if op == 57 { pc = pc + 3 + ir_word(pc + 1) } else { pc = pc + 1 + oplen(op) }
+  }
+  c.print("int main(void){setvbuf(stdout,0,_IONBF,0);f") num(c, ir_main()) c.print("();return 0;}\n")
+  emit_bodies(c)
+}

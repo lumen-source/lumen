@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import wabtInit from 'wabt';
 
-const SRC_BASE = 20000;
+const SRC_BASE = 100000;
 const srcPath = process.argv[2] || new URL('../mu/examples/fib_print.lm', import.meta.url);
 const source = fs.readFileSync(srcPath, 'utf8');
 
