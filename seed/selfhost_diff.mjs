@@ -28,6 +28,17 @@ const CONFORMANCE_LIST = [
 
 // expected match floor (Step 3) - initially empty as we don't know who matches yet
 const EXPECTED_MATCH = [
+  '../mu/examples/fib_print.lm',
+  '../mu/examples/add.lm',
+  '../mu/examples/max.lm',
+  '../mu/examples/fact.lm',
+  '../mu/examples/locals.lm',
+  '../mu/examples/forward.lm',
+  '../mu/examples/mutual.lm',
+  '../mu/examples/compare.lm',
+  '../mu/examples/gcd.lm',
+  '../mu/examples/count.lm',
+  '../mu/examples/sum_loop.lm',
 ];
 
 async function main() {

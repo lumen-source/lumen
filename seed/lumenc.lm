@@ -40,6 +40,12 @@ fn set_hp(v: Int) -> Unit { store32(32, v) }
 fn get_main_entry() -> Int { return load32(36) }
 fn set_main_entry(v: Int) -> Unit { store32(36, v) }
 
+fn get_expr_pushes() -> Int { return load32(40) }
+fn set_expr_pushes(v: Int) -> Unit { store32(40, v) }
+
+fn get_discard_slot() -> Int { return load32(44) }
+fn set_discard_slot(v: Int) -> Unit { store32(44, v) }
+
 # ---------- small helpers ----------
 fn b(i: Int) -> Int {
   return load8(SRC() + i)
@@ -706,8 +712,10 @@ fn c_primary() -> Unit {
       adv()
       if is_str_console_print(moff, mlen) == 1 {
         emitw(16)
+        set_expr_pushes(0)
       } else {
         emitw(10)
+        set_expr_pushes(0)
       }
       return ()
     }
@@ -733,9 +741,9 @@ fn c_primary() -> Unit {
       if is_str_int_to_text(off, length) == 1 { emitw(18)  return () }
       if is_str_text_concat(off, length) == 1 { emitw(17)  return () }
       if is_str_load8(off, length) == 1 { emitw(55)  return () }
-      if is_str_store8(off, length) == 1 { emitw(56)  return () }
+      if is_str_store8(off, length) == 1 { emitw(56)  set_expr_pushes(0)  return () }
       if is_str_load32(off, length) == 1 { emitw(53)  return () }
-      if is_str_store32(off, length) == 1 { emitw(54)  return () }
+      if is_str_store32(off, length) == 1 { emitw(54)  set_expr_pushes(0)  return () }
       
       emitw(8)
       fixup_add(get_emit(), off, length)
@@ -792,6 +800,7 @@ fn c_cmp() -> Unit {
 }
 
 fn c_expr() -> Unit {
+  set_expr_pushes(1)
   c_cmp()
 }
 
@@ -891,6 +900,10 @@ fn c_stmt() -> Unit {
     }
   }
   c_expr()
+  if get_expr_pushes() == 1 {
+    emitw(14)
+    emitw(get_discard_slot())
+  }
 }
 
 fn c_fn() -> Unit {
@@ -926,6 +939,8 @@ fn c_fn() -> Unit {
     adv()
     skip_type()
   }
+  set_discard_slot(get_nparam() + get_nlocal())
+  local_add(0, 0)
   emitw(13)
   let reservefix = get_emit()
   emitw(0)
@@ -942,6 +957,10 @@ fn c_fn() -> Unit {
   }
   if ismain == 1 {
     emitw(0)
+  } else {
+    emitw(1)
+    emitw(0)
+    emitw(9)
   }
 }
 
