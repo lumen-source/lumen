@@ -26,7 +26,8 @@ const CONFORMANCE_LIST = [
   '../mu/examples/propagate.lm',
 ];
 
-// expected match floor (Step 3) - initially empty as we don't know who matches yet
+// expected match floor: every program here must stay bit-identical or the harness exits 1.
+// Only safe_div/propagate remain outside it (sum-type syntax not yet lexed by lumenc.lm).
 const EXPECTED_MATCH = [
   '../mu/examples/fib_print.lm',
   '../mu/examples/add.lm',
@@ -35,8 +36,12 @@ const EXPECTED_MATCH = [
   '../mu/examples/locals.lm',
   '../mu/examples/forward.lm',
   '../mu/examples/mutual.lm',
+  '../mu/examples/hello.lm',
+  '../mu/examples/greet.lm',
+  '../mu/examples/report.lm',
   '../mu/examples/compare.lm',
   '../mu/examples/gcd.lm',
+  '../mu/examples/fizzbuzz.lm',
   '../mu/examples/count.lm',
   '../mu/examples/sum_loop.lm',
 ];

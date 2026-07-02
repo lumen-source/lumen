@@ -1183,7 +1183,7 @@ fn lex_compile(srclen: Int) -> Int {
   set_nfixup(0)
   set_nerr(0)
   set_main_entry(0)
-  set_hp(100000)
+  set_hp(488000)
   lex(srclen)
   set_tp(0)
   c_program()
