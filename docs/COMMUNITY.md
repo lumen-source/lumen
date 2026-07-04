@@ -91,4 +91,4 @@ The same properties that make the language AI-legible make it the easiest langua
 
 ## 8. Where the project lives
 
-The project lives in this dedicated open-source repository (github.com/felipe-delvalle/lumen-lang) as of 2026-07-03, spun out from the private development monorepo where it was bootstrapped (see `docs/PROVENANCE.md` for the extraction and audit). Its own issue tracker, RFC process, registry, and documentation site grow here. Nothing in the design ever assumed a monorepo.
+The project lives in this dedicated open-source repository (github.com/lumen-source/lumen) as of 2026-07-04, spun out from the private development monorepo where it was bootstrapped (see `docs/PROVENANCE.md` for the extraction and audit). Its own issue tracker, RFC process, registry, and documentation site grow here. Nothing in the design ever assumed a monorepo.

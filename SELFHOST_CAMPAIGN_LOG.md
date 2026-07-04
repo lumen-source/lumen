@@ -160,7 +160,7 @@ the program from receipted engineering to formal science:
 
 Methodology paper draft (PR #217): "Oracle-Gated Self-Hosting: Building a Programming
 Language with LLM Agent Fleets" - figures, fresh benches, citations locked to verified
-anchors. Reservation repos: github.com/felipe-delvalle/{lumen-lang, exactlang}. Official
+anchors. Official home: github.com/lumen-source/lumen (spun out 2026-07-04). Official
 source extension decided: `.lm` (`.el` collides with Emacs Lisp in GitHub Linguist).
 
 ---
