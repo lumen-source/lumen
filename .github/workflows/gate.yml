@@ -31,6 +31,10 @@ jobs:
         working-directory: seed
         run: |
           npm install
+          # loop_test.mjs exercises the MCP full-compiler-access tools (lumen_emit_c /
+          # lumen_emit_llvm / lumen_optimize), which import native/pipeline.mjs; that resolves
+          # `wabt` from native/node_modules, so the native deps must be present first.
+          (cd ../native && npm install)
           npm test
       - name: native gates (bit-identity vs the interpreter oracle)
         working-directory: native
