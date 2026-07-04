@@ -1,6 +1,6 @@
 # Lumen Language Reference (seed interpreter)
 
-This describes the **currently runnable subset of Lumen** (called "Lumen-mu", the seed interpreter). If you are writing a Lumen program, use only the features documented here; everything on this page is verified by the conformance test suite (`projects/lumen/seed/` and `projects/lumen/examples/`). The broader language vision lives in `docs/`, but only what is documented here will compile and run today.
+This describes the **currently runnable subset of Lumen** (called "Lumen-mu", the seed interpreter). If you are writing a Lumen program, use only the features documented here; everything on this page is verified by the conformance test suite (`seed/` and `examples/`). The broader language vision lives in `docs/`, but only what is documented here will compile and run today.
 
 ## Run a program
 

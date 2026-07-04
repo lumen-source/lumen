@@ -15,11 +15,12 @@ scalar 11/11, optimize 12/12, float 11/11). `trunk` is at `49599218c` (PR #175, 
 it does NOT yet carry the typed-slot base, so **do not branch CFM work off trunk** until #176 merges.
 
 **Coordination protocol (no collisions — the agy-vs-mine divergence is the lesson):**
-1. `git clone --reference` a fresh checkout under `QUANTS-Working-Trees/<id>`, then
-   `git checkout origin/ship/lumen-typed-float` (the branch tip — it carries this plan and the green
-   code, foundation SHA `7a573970f21db34beb3f9450fdd84e9396bfb984`). Clone-per-agent; **never
-   worktrees**, never edit `QUANTS`. See `tools/swarm/swarm.py`.
-2. One agent per lane (below). Commit on `ship/<id>`, PR into `trunk`, merge-queue serializes.
+(Historical note: this plan was written in the monorepo era. Since 2026-07-03 Lumen lives in
+this standalone repo, so the workflow is simply: branch off `main`, do one lane's work, PR into
+`main`, let CI gate it. The clone-per-agent / merge-queue mechanics below were the monorepo
+setup and no longer apply.)
+1. Branch off `main` for one lane (below); commit; open a PR into `main`.
+2. One agent per lane. CI gates each PR; land lanes in dependency order.
 3. **Lane A (P0) must land first** — it is the gate every other lane is measured by. Lanes B/C/D
    branch off the *same* base SHA and rebase onto trunk once P0 merges.
 4. When #176 merges to trunk, the base advances to that squashed trunk commit; everyone rebases.

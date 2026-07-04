@@ -35,7 +35,7 @@ Int arrays. Do not author code that assumes those.
 
 ## Beyond the interpreter: certified native backends
 
-Separately from the interpreter above, the project has a native-codegen track (`projects/lumen/native/`)
+Separately from the interpreter above, the project has a native-codegen track (`native/`)
 that lowers Lumen-mu IR to LLVM/NEON and validates it bit-exact against a POSIX libm reference
 (Black-Scholes-class float math kernels, verified to 0 ULP or documented cancellation error). That
 work is not exposed through this skill's authoring loop; treat it as a separate, in-progress
@@ -56,7 +56,7 @@ Write the program the way a human would first attempt it. When `lumen_check`/`lu
 something, do not just silently patch around it and move on — that failure is signal. If the
 rejected construct looks like it should reasonably exist (a loop, a float, a boolean literal),
 capture it as a minimal failing `.lm` snippet plus the diagnostic under
-`projects/lumen/conformance/` or `projects/lumen/examples/` rather than discarding it. That is how
+`conformance/` or `examples/` rather than discarding it. That is how
 the language subset grows: real authoring friction becomes the next test case, not a rabbit hole
 you work around forever.
 

@@ -91,4 +91,4 @@ The same properties that make the language AI-legible make it the easiest langua
 
 ## 8. Where the project lives
 
-For now the project is developed inside this monorepo at `projects/lumen/`. When it reaches a public-readiness milestone (around Phase 5), it is spun out into its own dedicated open-source repository with its own issue tracker, RFC process, registry, and documentation site. The roadmap notes this transition; nothing in the design assumes a monorepo.
+The project lives in this dedicated open-source repository (github.com/felipe-delvalle/lumen-lang) as of 2026-07-03, spun out from the private development monorepo where it was bootstrapped (see `docs/PROVENANCE.md` for the extraction and audit). Its own issue tracker, RFC process, registry, and documentation site grow here. Nothing in the design ever assumed a monorepo.

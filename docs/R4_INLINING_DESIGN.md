@@ -18,7 +18,7 @@ When replacing a `[CALL target argc]` instruction at `pc` with the callee body:
 
 ### Argument Mapping & Stack Adjustment
 Before the `CALL` instruction, the caller has pushed `argc` arguments onto the operand stack (`osp`).
-In the interpreter (`projects/lumen/seed/lumenc.wat` lines 1391-1399), `CALL` shifts the argument base:
+In the interpreter (`seed/lumenc.wat` lines 1391-1399), `CALL` shifts the argument base:
 `global.set $argbase (i32.sub (global.get $osp) (local.get $argc))`
 This makes the pushed arguments correspond to the callee's local slots `0` to `argc - 1`.
 
@@ -83,7 +83,7 @@ The inlining pass will abort and return the input IR unchanged if any of the fol
 
 ## 5. Measured Justification Plan (Candidate Census)
 
-A scan of the current corpus programs (`projects/lumen/mu/examples/*.lm`) was performed to count candidate call sites:
+A scan of the current corpus programs (`mu/examples/*.lm`) was performed to count candidate call sites:
 
 | Program | Call Sites | Details (PC, Entry, Argc) |
 |---|---|---|

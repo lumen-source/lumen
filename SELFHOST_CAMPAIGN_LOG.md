@@ -45,7 +45,7 @@ self-host lexer does not yet accept; they are honest `SELFHOST-ERROR`, not `DIFF
 
 ## Act II - The Forge (the oracle corpus grows itself), PR #218
 
-`projects/lumen/forge/`: a deterministic, type-directed program generator (seeded
+`forge/`: a deterministic, type-directed program generator (seeded
 xorshift64star; same seed = byte-identical program) feeding a 5-path differential runner -
 seed interpreter, self-hosted-compiler IR word-diff, optimizer, C backend, LLVM backend.
 Findings are delta-minimized into a fixed/pending corpus (a fresh discovery reports; only

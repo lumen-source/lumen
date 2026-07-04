@@ -24,7 +24,7 @@ sh packaging/install.sh --dry-run
 **Claude Code:**
 
 ```sh
-claude mcp add lumen -- node /absolute/path/to/projects/lumen/seed/lumen_mcp.mjs
+claude mcp add lumen -- node /absolute/path/to/lumen-lang/seed/lumen_mcp.mjs
 ```
 
 **Cursor** (`.cursor/mcp.json`):
@@ -34,7 +34,7 @@ claude mcp add lumen -- node /absolute/path/to/projects/lumen/seed/lumen_mcp.mjs
   "mcpServers": {
     "lumen": {
       "command": "node",
-      "args": ["/absolute/path/to/projects/lumen/seed/lumen_mcp.mjs"]
+      "args": ["/absolute/path/to/lumen-lang/seed/lumen_mcp.mjs"]
     }
   }
 }
