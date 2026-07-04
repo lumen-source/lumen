@@ -825,44 +825,57 @@
             (local.set $tag (call $variant_find (local.get $off) (local.get $len)))
             (if (i32.ge_s (local.get $tag) (i32.const 0))   ;; variant constructor Name(arg): payload is on the stack
               (then (call $emitw (i32.const 25)) (call $emitw (local.get $tag)) (global.set $ety (i32.const 0)) (return)))   ;; MKSUM tag
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248240) (i32.const 6))   ;; to_int(x): Float -> Int (trunc)
-              (then (call $emitw (i32.const 42)) (global.set $ety (i32.const 0)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248250) (i32.const 5))   ;; round(x): Float -> Int (nearest)
-              (then (call $emitw (i32.const 43)) (global.set $ety (i32.const 0)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248260) (i32.const 8))   ;; to_float(n): Int -> Float
-              (then (call $emitw (i32.const 30)) (global.set $ety (i32.const 1)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248270) (i32.const 4))   ;; sqrt(x)
-              (then (call $emitw (i32.const 44)) (global.set $ety (i32.const 1)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248310) (i32.const 3))   ;; abs(x) (Float)
-              (then (call $emitw (i32.const 45)) (global.set $ety (i32.const 1)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248280) (i32.const 3))   ;; exp(x)
-              (then (call $emitw (i32.const 46)) (global.set $ety (i32.const 1)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248290) (i32.const 2))   ;; ln(x)
-              (then (call $emitw (i32.const 47)) (global.set $ety (i32.const 1)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248300) (i32.const 3))   ;; pow(x,y)
-              (then (call $emitw (i32.const 48)) (global.set $ety (i32.const 1)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248320) (i32.const 5))   ;; array(n) -> handle
-              (then (call $emitw (i32.const 49)) (global.set $ety (i32.const 0)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248330) (i32.const 4))   ;; aget(a,i) -> Float
-              (then (call $emitw (i32.const 50)) (global.set $ety (i32.const 1)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248340) (i32.const 4))   ;; aset(a,i,x) -> Unit (no value)
-              (then (call $emitw (i32.const 51)) (global.set $ety (i32.const 0)) (global.set $expr_pushes (i32.const 0)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248350) (i32.const 4))   ;; alen(a) -> Int
-              (then (call $emitw (i32.const 52)) (global.set $ety (i32.const 0)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248360) (i32.const 6))   ;; load32(addr) -> Int (raw mem, sign-ext)
-              (then (call $emitw (i32.const 53)) (global.set $ety (i32.const 0)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248370) (i32.const 7))   ;; store32(addr,val) -> Unit
-              (then (call $emitw (i32.const 54)) (global.set $ety (i32.const 0)) (global.set $expr_pushes (i32.const 0)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248380) (i32.const 5))   ;; load8(addr) -> Int (byte, zero-ext)
-              (then (call $emitw (i32.const 55)) (global.set $ety (i32.const 0)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248390) (i32.const 6))   ;; store8(addr,val) -> Unit
-              (then (call $emitw (i32.const 56)) (global.set $ety (i32.const 0)) (global.set $expr_pushes (i32.const 0)) (return)))
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248100) (i32.const 11))   ;; int_to_text(x)
-              (then (call $emitw (i32.const 18)) (global.set $ety (i32.const 0)) (return)))   ;; INT2TEXT
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248120) (i32.const 11))   ;; text_concat(a,b)
-              (then (call $emitw (i32.const 17)) (global.set $ety (i32.const 0)) (return)))   ;; CONCAT
-            (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248170) (i32.const 7))   ;; text_eq(a,b)
-              (then (call $emitw (i32.const 28)) (global.set $ety (i32.const 0)) (return)))   ;; TEXTEQ
+            ;; builtin dispatch, length-bucketed: gate each group on the identifier
+            ;; length so a call skips every builtin whose name-length cannot match. A
+            ;; user-function call now falls through to CALL below after only its own
+            ;; length group's comparisons instead of all ~18. $eqlit still length-checks
+            ;; internally, so the emitted code is identical to the old flat chain.
+            (if (i32.eq (local.get $len) (i32.const 2)) (then
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248290) (i32.const 2))   ;; ln(x)
+                (then (call $emitw (i32.const 47)) (global.set $ety (i32.const 1)) (return)))))
+            (if (i32.eq (local.get $len) (i32.const 3)) (then
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248310) (i32.const 3))   ;; abs(x) (Float)
+                (then (call $emitw (i32.const 45)) (global.set $ety (i32.const 1)) (return)))
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248280) (i32.const 3))   ;; exp(x)
+                (then (call $emitw (i32.const 46)) (global.set $ety (i32.const 1)) (return)))
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248300) (i32.const 3))   ;; pow(x,y)
+                (then (call $emitw (i32.const 48)) (global.set $ety (i32.const 1)) (return)))))
+            (if (i32.eq (local.get $len) (i32.const 4)) (then
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248270) (i32.const 4))   ;; sqrt(x)
+                (then (call $emitw (i32.const 44)) (global.set $ety (i32.const 1)) (return)))
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248330) (i32.const 4))   ;; aget(a,i) -> Float
+                (then (call $emitw (i32.const 50)) (global.set $ety (i32.const 1)) (return)))
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248340) (i32.const 4))   ;; aset(a,i,x) -> Unit (no value)
+                (then (call $emitw (i32.const 51)) (global.set $ety (i32.const 0)) (global.set $expr_pushes (i32.const 0)) (return)))
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248350) (i32.const 4))   ;; alen(a) -> Int
+                (then (call $emitw (i32.const 52)) (global.set $ety (i32.const 0)) (return)))))
+            (if (i32.eq (local.get $len) (i32.const 5)) (then
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248250) (i32.const 5))   ;; round(x): Float -> Int (nearest)
+                (then (call $emitw (i32.const 43)) (global.set $ety (i32.const 0)) (return)))
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248320) (i32.const 5))   ;; array(n) -> handle
+                (then (call $emitw (i32.const 49)) (global.set $ety (i32.const 0)) (return)))
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248380) (i32.const 5))   ;; load8(addr) -> Int (byte, zero-ext)
+                (then (call $emitw (i32.const 55)) (global.set $ety (i32.const 0)) (return)))))
+            (if (i32.eq (local.get $len) (i32.const 6)) (then
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248240) (i32.const 6))   ;; to_int(x): Float -> Int (trunc)
+                (then (call $emitw (i32.const 42)) (global.set $ety (i32.const 0)) (return)))
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248360) (i32.const 6))   ;; load32(addr) -> Int (raw mem, sign-ext)
+                (then (call $emitw (i32.const 53)) (global.set $ety (i32.const 0)) (return)))
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248390) (i32.const 6))   ;; store8(addr,val) -> Unit
+                (then (call $emitw (i32.const 56)) (global.set $ety (i32.const 0)) (global.set $expr_pushes (i32.const 0)) (return)))))
+            (if (i32.eq (local.get $len) (i32.const 7)) (then
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248370) (i32.const 7))   ;; store32(addr,val) -> Unit
+                (then (call $emitw (i32.const 54)) (global.set $ety (i32.const 0)) (global.set $expr_pushes (i32.const 0)) (return)))
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248170) (i32.const 7))   ;; text_eq(a,b)
+                (then (call $emitw (i32.const 28)) (global.set $ety (i32.const 0)) (return)))))
+            (if (i32.eq (local.get $len) (i32.const 8)) (then
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248260) (i32.const 8))   ;; to_float(n): Int -> Float
+                (then (call $emitw (i32.const 30)) (global.set $ety (i32.const 1)) (return)))))
+            (if (i32.eq (local.get $len) (i32.const 11)) (then
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248100) (i32.const 11))   ;; int_to_text(x)
+                (then (call $emitw (i32.const 18)) (global.set $ety (i32.const 0)) (return)))   ;; INT2TEXT
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248120) (i32.const 11))   ;; text_concat(a,b)
+                (then (call $emitw (i32.const 17)) (global.set $ety (i32.const 0)) (return)))))   ;; CONCAT
             (call $emitw (i32.const 8))   ;; CALL
             (call $fixup_add (global.get $emit) (local.get $off) (local.get $len))   ;; entry resolved later
             (call $emitw (i32.const 0))   ;; placeholder entry (backpatched by $resolve_fixups)
