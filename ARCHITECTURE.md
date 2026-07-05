@@ -35,8 +35,9 @@ import; everything else is arithmetic over a flat linear memory (100 pages, ~6.5
 
 - **IR / opcode model.** A stack machine: `PUSH`, `GETARG`, arithmetic and comparisons, `JZ`/`JMP`,
   `CALL`/`RET`, `RESERVE`/`SETLOCAL` (call frames), `PRINTINT`/`PRINTTEXT`, text ops, sum-type ops,
-  floats, heap Float arrays, and the raw-memory keystone `load8`/`store8`/`load32`/`store32` (the
-  primitives the HTTP and tooling kernels build on).
+  floats, heap Float arrays, the raw-memory keystone `load8`/`store8`/`load32`/`store32`, and the
+  bitwise builtins `band`/`bor`/`bxor`/`shl`/`shr`/`bnot` (i64, `shr` logical/unsigned) - the
+  primitives the HTTP, tooling, and future crypto kernels build on.
 - **Execution model.** `$run` sets `pc = main_entry` with an empty operand stack and call stack,
   then dispatches. Calls push a return frame onto the call stack (base `9216`); frame locals live at
   base `1024`; the Text heap bump-allocates in `[488000, 524288)`. A guard makes a top-level `RET`
@@ -49,6 +50,12 @@ import; everything else is arithmetic over a flat linear memory (100 pages, ~6.5
 The same compiler, written in Lumen. It compiles itself to the identical IR the seed produces
 (`SELF: MATCH`, enforced by `seed/selfhost_diff.mjs`). This is what makes the seed disposable: the
 language is defined by a compiler expressed in the language.
+
+A language feature is **not self-hosted until it lands in `lumenc.lm`**, not just the seed: the seed
+(`.wat`) and the host shims (`.mjs`) are disposable bootstrap, so a builtin added only there would
+vanish when they are retired. `selfhost_diff.mjs` guards this - it compiles a corpus (including a
+program that exercises the feature) with both the seed and `lumenc.lm` and requires bit-identical
+output. Bitwise, for example, is dispatched in `lumenc.lm` and gated by `mu/examples/bitwise.lm`.
 
 ## The native backend (`native/`)
 
@@ -85,16 +92,21 @@ response bytes. Live socket serving is a future capability seam and is not yet b
 parse and build HTTP messages, they do not yet answer a live connection.
 
 <!-- AUTO:kernels -->
+- `content_type_value`
 - `hex_decode`
 - `hex_encode`
 - `http_chunked`
 - `http_headers`
+- `http_keepalive`
 - `http_request_body`
 - `http_response`
 - `http_router`
 - `http_status_line`
+- `int_parse`
 - `parse_request`
 - `query_parse`
+- `to_lower`
+- `trim`
 - `url_decode`
 <!-- /AUTO:kernels -->
 
@@ -142,6 +154,11 @@ regression; the Forge adds adversarial coverage. The full gate list run by `.git
 - `http_status_line_test.mjs`
 - `hex_encode_test.mjs`
 - `hex_decode_test.mjs`
+- `int_parse_test.mjs`
+- `trim_test.mjs`
+- `to_lower_test.mjs`
+- `http_keepalive_test.mjs`
+- `content_type_value_test.mjs`
 <!-- /AUTO:gates -->
 
 ## How this document stays current
