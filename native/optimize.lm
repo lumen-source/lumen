@@ -144,7 +144,7 @@ fn pass_a() -> Int {
 fn restore_orig(orig_len: Int, orig_main: Int) -> Unit {
   var i = 0
   while i < orig_len {
-    store32(524288 + 8 + i * 4, load32(524288 + 8 + orig_len * 4 + i * 4))
+    store32(524288 + 8 + i * 4, get_orig(i))
     i = i + 1
   }
   store32(524288, orig_len)

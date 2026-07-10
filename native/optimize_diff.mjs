@@ -159,6 +159,21 @@ const okBig = beforeBig === "7\n" && afterBig === "7\n" && changedBig === 0
 console.log(`${okBig ? 'PASS' : 'FAIL'}  synth-size-failsafe  changed=${changedBig}  len=${optBig.length}  out=${JSON.stringify(afterBig)}`);
 if (okBig) pass++; else fail++;
 
+// 7b. unknown-opcode fail-safe: restore_orig must read back exactly the words set_orig wrote.
+// is_known_op covers 0-63 only, so an out-of-range opcode word (99) trips decode_ok=0 mid-scan,
+// which returns via restore_orig(orig_len, orig_main) instead of continuing to relocate/compact.
+// Regression: restore_orig once read from 524288 + 8 + orig_len*4 + i*4 (a region set_orig never
+// wrote), so this path "restored" zeroed/garbage memory instead of the real original IR. Assert
+// the fail-safe truly restores: output words identical to input, changed=0, main unchanged.
+const synthUnknownOp = Int32Array.from([1, 7, 99, 10, 0]);
+const { words: optUnknownOp, main: mainUnknownOp, changed: changedUnknownOp } =
+  await optimizeIR(Int32Array.from(synthUnknownOp), 0);
+const okUnknownOp = changedUnknownOp === 0 && mainUnknownOp === 0
+  && optUnknownOp.length === synthUnknownOp.length
+  && optUnknownOp.every((v, i) => v === synthUnknownOp[i]);
+console.log(`${okUnknownOp ? 'PASS' : 'FAIL'}  synth-unknown-opcode-failsafe  changed=${changedUnknownOp}  words=[${[...optUnknownOp]}]`);
+if (okUnknownOp) pass++; else fail++;
+
 // 8. TYPEMAP keep-root: typemap records (op 57) are emitter metadata, usually sitting
 // control-flow-unreachable after a RET. The interpreter nop-skips them, so runIR-based checks
 // stay green even when DCE eats them - but emit_fn.lm derives slot/return types from them, and
@@ -298,5 +313,5 @@ if (INLINE_ENABLED) {
   if (identical) pass++; else fail++;
 }
 
-console.log(`\n${pass}/${SCALAR.length + 11} checks: optimize.lm (Lumen) is output-identical to the interpreter; size delta: -${totalWordsRemoved} words, total folds: ${totalFolds} (fail ${fail})`);
+console.log(`\n${pass}/${SCALAR.length + 12} checks: optimize.lm (Lumen) is output-identical to the interpreter; size delta: -${totalWordsRemoved} words, total folds: ${totalFolds} (fail ${fail})`);
 process.exit(fail === 0 ? 0 : 1);
