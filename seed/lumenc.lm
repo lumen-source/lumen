@@ -10,6 +10,11 @@ fn LOCALS() -> Int { return 157500 }
 fn FIXUPS() -> Int { return 158000 }
 fn CODE() -> Int { return 211328 }
 fn HEAP() -> Int { return 300000 }
+# sum-type variant table: (name_off, name_len, tag) x 12 bytes, well clear of CODE growth
+# and the DIAG_BASE-style error records at 290000.
+fn VARIANTS() -> Int { return 270000 }
+fn VARIANT_OK_LIT() -> Int { return 271000 }
+fn VARIANT_ERR_LIT() -> Int { return 271010 }
 
 # Globals mapped to memory [0..1024)
 fn get_emit() -> Int { return load32(0) }
@@ -47,6 +52,9 @@ fn set_expr_pushes(v: Int) -> Unit { store32(40, v) }
 
 fn get_discard_slot() -> Int { return load32(44) }
 fn set_discard_slot(v: Int) -> Unit { store32(44, v) }
+
+fn get_nvariant() -> Int { return load32(56) }
+fn set_nvariant(v: Int) -> Unit { store32(56, v) }
 
 # ---------- small helpers ----------
 fn b(i: Int) -> Int {
@@ -342,6 +350,51 @@ fn is_str_bnot(off: Int, len: Int) -> Int {
   return 1
 }
 
+fn is_str_type(off: Int, len: Int) -> Int {
+  if len != 4 { return 0 }
+  if load8(off + 0) != 116 { return 0 }
+  if load8(off + 1) != 121 { return 0 }
+  if load8(off + 2) != 112 { return 0 }
+  if load8(off + 3) != 101 { return 0 }
+  return 1
+}
+fn is_kw_type(i: Int) -> Int {
+  if tk(i) != 1 { return 0 }
+  return is_str_type(ta(i), tb(i))
+}
+
+fn is_str_match(off: Int, len: Int) -> Int {
+  if len != 5 { return 0 }
+  if load8(off + 0) != 109 { return 0 }
+  if load8(off + 1) != 97 { return 0 }
+  if load8(off + 2) != 116 { return 0 }
+  if load8(off + 3) != 99 { return 0 }
+  if load8(off + 4) != 104 { return 0 }
+  return 1
+}
+fn is_kw_match(i: Int) -> Int {
+  if tk(i) != 1 { return 0 }
+  return is_str_match(ta(i), tb(i))
+}
+
+fn is_str_text_eq(off: Int, len: Int) -> Int {
+  if len != 7 { return 0 }
+  if load8(off + 0) != 116 { return 0 }
+  if load8(off + 1) != 101 { return 0 }
+  if load8(off + 2) != 120 { return 0 }
+  if load8(off + 3) != 116 { return 0 }
+  if load8(off + 4) != 95 { return 0 }
+  if load8(off + 5) != 101 { return 0 }
+  if load8(off + 6) != 113 { return 0 }
+  return 1
+}
+
+fn is_wild(off: Int, len: Int) -> Int {
+  if len != 1 { return 0 }
+  if load8(off) == 95 { return 1 }
+  return 0
+}
+
 fn kw_is(i: Int, p: Int, plen: Int) -> Int {
   if tk(i) != 1 { return 0 }
   return eqlit(ta(i), tb(i), p, plen)
@@ -367,6 +420,44 @@ fn sym_find(off: Int, len: Int) -> Int {
     k = k + 1
   }
   return 0 - 1
+}
+
+fn variant_add(off: Int, len: Int, tag: Int) -> Unit {
+  let base = VARIANTS() + get_nvariant() * 12
+  store32(base, off)
+  store32(base + 4, len)
+  store32(base + 8, tag)
+  set_nvariant(get_nvariant() + 1)
+}
+
+fn variant_find(off: Int, len: Int) -> Int {
+  var k = 0
+  let limit = get_nvariant()
+  while k < limit {
+    let base = VARIANTS() + k * 12
+    if eqlit(load32(base), load32(base + 4), off, len) == 1 {
+      return load32(base + 8)
+    }
+    k = k + 1
+  }
+  return 0 - 1
+}
+
+fn seed_variants() -> Unit {
+  set_nvariant(0)
+  store8(VARIANT_OK_LIT() + 0, 111)
+  store8(VARIANT_OK_LIT() + 1, 107)
+  variant_add(VARIANT_OK_LIT(), 2, 0)
+  store8(VARIANT_ERR_LIT() + 0, 101)
+  store8(VARIANT_ERR_LIT() + 1, 114)
+  store8(VARIANT_ERR_LIT() + 2, 114)
+  variant_add(VARIANT_ERR_LIT(), 3, 1)
+}
+
+fn tmp_local() -> Int {
+  let idx = get_nparam() + get_nlocal()
+  local_add(0, 0)
+  return idx
 }
 
 fn param_add(off: Int, len: Int) -> Unit {
@@ -687,6 +778,8 @@ fn lex(srclen: Int) -> Unit {
                         if c == 42 { val = 17 }
                         if c == 47 { val = 18 }
                         if c == 37 { val = 26 }
+                        if c == 124 { val = 27 }
+                        if c == 63 { val = 28 }
                         if val != 0 {
                           tokset(n, val, 0, 0)
                           n = n + 1
@@ -727,6 +820,10 @@ fn skip_type() -> Unit {
 }
 
 fn c_primary() -> Unit {
+  if is_kw_match(get_tp()) == 1 {
+    c_match()
+    return ()
+  }
   let k = tk(get_tp())
   if k == 2 {
     emitw(1)
@@ -798,8 +895,15 @@ fn c_primary() -> Unit {
         }
       }
       adv()
+      let ctag = variant_find(off, length)
+      if ctag >= 0 {
+        emitw(25)
+        emitw(ctag)
+        return ()
+      }
       if is_str_int_to_text(off, length) == 1 { emitw(18)  return () }
       if is_str_text_concat(off, length) == 1 { emitw(17)  return () }
+      if is_str_text_eq(off, length) == 1 { emitw(28)  return () }
       if is_str_load8(off, length) == 1 { emitw(55)  return () }
       if is_str_store8(off, length) == 1 { emitw(56)  set_expr_pushes(0)  return () }
       if is_str_load32(off, length) == 1 { emitw(53)  return () }
@@ -818,6 +922,14 @@ fn c_primary() -> Unit {
       return ()
     }
     
+    let ntag = variant_find(off, length)
+    if ntag >= 0 {
+      emitw(1)
+      emitw(0)
+      emitw(25)
+      emitw(ntag)
+      return ()
+    }
     var slot = var_find(off, length)
     if slot < 0 {
       err_add(1, off, length)
@@ -829,14 +941,49 @@ fn c_primary() -> Unit {
   }
 }
 
-fn c_mul() -> Unit {
+fn c_apply_try() -> Unit {
+  let s = tmp_local()
+  emitw(14)
+  emitw(s)
+  emitw(2)
+  emitw(s)
+  emitw(26)
+  emitw(1)
+  emitw(1)
+  emitw(19)
+  emitw(6)
+  let jz = get_emit()
+  emitw(0)
+  emitw(2)
+  emitw(s)
+  emitw(9)
+  patch(jz, get_emit())
+  emitw(2)
+  emitw(s)
+  emitw(27)
+}
+
+fn c_postfix() -> Unit {
   c_primary()
   var loop = 1
   while loop == 1 {
+    if tk(get_tp()) == 28 {
+      adv()
+      c_apply_try()
+    } else {
+      loop = 0
+    }
+  }
+}
+
+fn c_mul() -> Unit {
+  c_postfix()
+  var loop = 1
+  while loop == 1 {
     let k = tk(get_tp())
-    if k == 17 { adv()  c_primary()  emitw(11) } else {
-    if k == 18 { adv()  c_primary()  emitw(12) } else {
-    if k == 26 { adv()  c_primary()  emitw(24) } else {
+    if k == 17 { adv()  c_postfix()  emitw(11) } else {
+    if k == 18 { adv()  c_postfix()  emitw(12) } else {
+    if k == 26 { adv()  c_postfix()  emitw(24) } else {
       loop = 0
     }}}
   }
@@ -881,6 +1028,128 @@ fn c_block() -> Unit {
     }
   }
   adv()
+}
+
+fn c_type() -> Unit {
+  adv()
+  adv()
+  if tk(get_tp()) == 19 {
+    adv()
+  }
+  var tag = 0
+  var loop = 1
+  while loop == 1 {
+    if tk(get_tp()) != 27 {
+      loop = 0
+    } else {
+      adv()
+      if tk(get_tp()) != 1 {
+        loop = 0
+      } else {
+        let voff = ta(get_tp())
+        let vlen = tb(get_tp())
+        adv()
+        variant_add(voff, vlen, tag)
+        tag = tag + 1
+        if tk(get_tp()) == 3 {
+          adv()
+          skip_type()
+          if tk(get_tp()) == 4 {
+            adv()
+          }
+        }
+      }
+    }
+  }
+}
+
+fn c_match() -> Unit {
+  adv()
+  c_expr()
+  let s = tmp_local()
+  emitw(14)
+  emitw(s)
+  adv()
+  var endchain = 0 - 1
+  var loop = 1
+  while loop == 1 {
+    if tk(get_tp()) == 6 { loop = 0 } else {
+    if tk(get_tp()) == 14 { loop = 0 } else {
+      var jz = 0 - 1
+      var havebind = 0
+      var vslot = 0
+      if tk(get_tp()) == 1 {
+        let poff = ta(get_tp())
+        let plen = tb(get_tp())
+        adv()
+        if is_wild(poff, plen) == 1 {
+          jz = 0 - 1
+        } else {
+          var tag = variant_find(poff, plen)
+          if tag < 0 {
+            err_add(3, poff, plen)
+            tag = 0
+          }
+          var boff = 0
+          var blen = 0
+          if tk(get_tp()) == 3 {
+            adv()
+            boff = ta(get_tp())
+            blen = tb(get_tp())
+            adv()
+            adv()
+            if is_wild(boff, blen) == 1 {
+              havebind = 0
+            } else {
+              havebind = 1
+            }
+          }
+          emitw(2)
+          emitw(s)
+          emitw(26)
+          emitw(1)
+          emitw(tag)
+          emitw(19)
+          emitw(6)
+          jz = get_emit()
+          emitw(0)
+          if havebind == 1 {
+            vslot = get_nparam() + get_nlocal()
+            local_add(boff, blen)
+            emitw(2)
+            emitw(s)
+            emitw(27)
+            emitw(14)
+            emitw(vslot)
+          }
+        }
+      } else {
+        err_add(3, ta(get_tp()), tb(get_tp()))
+        adv()
+      }
+      adv()
+      c_expr()
+      emitw(7)
+      emitw(endchain)
+      endchain = get_emit() - 1
+      if jz >= 0 {
+        patch(jz, get_emit())
+      }
+    }}
+  }
+  var loop2 = 1
+  while loop2 == 1 {
+    if endchain < 0 {
+      loop2 = 0
+    } else {
+      let next = codew(endchain)
+      patch(endchain, get_emit())
+      endchain = next
+    }
+  }
+  if tk(get_tp()) == 6 {
+    adv()
+  }
 }
 
 fn c_if() -> Unit {
@@ -1036,7 +1305,11 @@ fn c_program() -> Unit {
     if tk(get_tp()) == 14 {
       loop = 0
     } else {
-      c_fn()
+      if is_kw_type(get_tp()) == 1 {
+        c_type()
+      } else {
+        c_fn()
+      }
     }
   }
 }
@@ -1250,6 +1523,7 @@ fn lex_compile(srclen: Int) -> Int {
   set_nerr(0)
   set_main_entry(0)
   set_hp(488000)
+  seed_variants()
   lex(srclen)
   set_tp(0)
   c_program()

@@ -28,7 +28,8 @@ const CONFORMANCE_LIST = [
 ];
 
 // expected match floor: every program here must stay bit-identical or the harness exits 1.
-// Only safe_div/propagate remain outside it (sum-type syntax not yet lexed by lumenc.lm).
+// safe_div/propagate joined the floor once lumenc.lm gained sum-type syntax (type decls,
+// match, ok/err constructors, the ? operator): 18/18 bit-identical.
 const EXPECTED_MATCH = [
   '../mu/examples/fib_print.lm',
   '../mu/examples/add.lm',
@@ -46,6 +47,8 @@ const EXPECTED_MATCH = [
   '../mu/examples/count.lm',
   '../mu/examples/sum_loop.lm',
   '../mu/examples/bitwise.lm',
+  '../mu/examples/safe_div.lm',
+  '../mu/examples/propagate.lm',
 ];
 
 async function main() {
@@ -244,7 +247,7 @@ async function main() {
     console.log(`SELF(lumenc.lm): SELFHOST-ERROR (crash: ${String(e.message || e)})`);
   }
 
-  const summary = `${matchCount}/17 bit-identical, ${diffCount} diff, ${errorCount} error`;
+  const summary = `${matchCount}/${CONFORMANCE_LIST.length} bit-identical, ${diffCount} diff, ${errorCount} error`;
   console.log(`\nSummary: ${summary}`);
   console.log('Matched list:', JSON.stringify(matchedPrograms));
 }
