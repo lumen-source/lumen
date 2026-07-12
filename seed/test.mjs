@@ -23,8 +23,9 @@ const cases = [
   ['../mu/examples/bitwise.lm', '8\n14\n6\n16\n16\n-1\n'],
   ['../mu/examples/safe_div.lm', 'ok 4\ndiv by zero\n'],
   ['../mu/examples/propagate.lm', '9\n'],
+  ['../mu/examples/bools.lm', '1\n0\n1\n0\n1\n1\n1\n1\n42\n3\n'],
   ['native/test_load32.lm', '7\n65\n'],   // raw-memory keystone: store32/load32 + store8/load8 round-trip
-  ['../examples/black_scholes.lm', 'bs_call=10.450576\n'],   // quant oracle: reproduces FE-API's Black-Scholes call (10.450584) to 8e-6; also exercises userland float_to_text
+  ['../examples/black_scholes.lm', 'bs_call=10.450576\n'],   // quant oracle: reproduces the canonical Black-Scholes call (10.450584) to 8e-6; also exercises userland float_to_text
 ];
 
 const wabt = await wabtInit();

@@ -190,6 +190,41 @@ fn is_kw_else(i: Int) -> Int {
   return is_str_else(ta(i), tb(i))
 }
 
+fn is_str_and(off: Int, len: Int) -> Int {
+  if len != 3 { return 0 }
+  if load8(off + 0) != 97 { return 0 }
+  if load8(off + 1) != 110 { return 0 }
+  if load8(off + 2) != 100 { return 0 }
+  return 1
+}
+fn is_kw_and(i: Int) -> Int {
+  if tk(i) != 1 { return 0 }
+  return is_str_and(ta(i), tb(i))
+}
+
+fn is_str_or(off: Int, len: Int) -> Int {
+  if len != 2 { return 0 }
+  if load8(off + 0) != 111 { return 0 }
+  if load8(off + 1) != 114 { return 0 }
+  return 1
+}
+fn is_kw_or(i: Int) -> Int {
+  if tk(i) != 1 { return 0 }
+  return is_str_or(ta(i), tb(i))
+}
+
+fn is_str_not(off: Int, len: Int) -> Int {
+  if len != 3 { return 0 }
+  if load8(off + 0) != 110 { return 0 }
+  if load8(off + 1) != 111 { return 0 }
+  if load8(off + 2) != 116 { return 0 }
+  return 1
+}
+fn is_kw_not(i: Int) -> Int {
+  if tk(i) != 1 { return 0 }
+  return is_str_not(ta(i), tb(i))
+}
+
 fn is_str_console_print(off: Int, len: Int) -> Int {
   if len != 5 { return 0 }
   if load8(off + 0) != 112 { return 0 }
@@ -1012,9 +1047,71 @@ fn c_cmp() -> Unit {
   if k == 25 { adv()  c_add()  emitw(23) }
 }
 
+# Boolean operators, seed-identical shapes (loosest to tightest: or < and < not < cmp).
+# not X   ->  <X> PUSH 0 EQ                                       (normalizes to 0/1)
+# A and B ->  <A> JZ Lf <B> JMP Le  Lf: PUSH 0  Le:               (short-circuit; yields B)
+# A or B  ->  <A> JZ Lr PUSH 1 JMP Le  Lr: <B>  Le:               (short-circuit; yields 1 or B)
+fn c_not() -> Unit {
+  if is_kw_not(get_tp()) == 1 {
+    adv()
+    c_not()
+    emitw(1)
+    emitw(0)
+    emitw(19)
+    return ()
+  }
+  c_cmp()
+}
+
+fn c_and() -> Unit {
+  c_not()
+  var loop = 1
+  while loop == 1 {
+    if is_kw_and(get_tp()) == 1 {
+      adv()
+      emitw(6)
+      let ja = get_emit()
+      emitw(0)
+      c_not()
+      emitw(7)
+      let jb = get_emit()
+      emitw(0)
+      patch(ja, get_emit())
+      emitw(1)
+      emitw(0)
+      patch(jb, get_emit())
+    } else {
+      loop = 0
+    }
+  }
+}
+
+fn c_or() -> Unit {
+  c_and()
+  var loop = 1
+  while loop == 1 {
+    if is_kw_or(get_tp()) == 1 {
+      adv()
+      emitw(6)
+      let ja = get_emit()
+      emitw(0)
+      emitw(1)
+      emitw(1)
+      emitw(7)
+      let jb = get_emit()
+      emitw(0)
+      patch(ja, get_emit())
+      c_and()
+      patch(jb, get_emit())
+    } else {
+      loop = 0
+    }
+  }
+}
+
 fn c_expr() -> Unit {
   set_expr_pushes(1)
-  c_cmp()
+  c_or()
 }
 
 fn c_block() -> Unit {

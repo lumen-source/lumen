@@ -1,0 +1,375 @@
+# Pure-Lumen click/event analytics kernel: an append-only event log plus the three read models
+# every self-owned product-analytics pipeline needs, computed by folding the log directly -
+# no external vendor, no database, no query engine. Events are appended as packed records and
+# every report is a deterministic fold over the log bytes:
+#
+#   APPEND  (op 1)  record one event: (event name, user key, page path)
+#   SUMMARY (op 2)  distinct event names with counts, most-common first (ties: first-seen order)
+#   FUNNEL  (op 3)  counts for a caller-supplied ordered list of event names (0 when absent)
+#   TRAIL   (op 4)  one user's full click trail, oldest first - append order IS time order,
+#                   so the trail costs one scan and zero sorting
+#
+# Like examples/state/eventlog.lm (Stone E), this kernel uses ONLY load8/store8/load32/store32
+# + arithmetic + the boolean operators, so it is perf-neutral by construction. It is also the
+# first example authored with and/or/not compiled by the self-hosted lumenc.lm (census entry:
+# the kernel must compile bit-identically under the seed and under lumenc.lm).
+#
+# --- Memory map (eventlog.lm conventions; this kernel is its own program, regions reserved) ---
+#   CMD staging   [5,990,000 .. 6,000,000)  the host writes one command per run:
+#        op            5,990,000  i32   1 = APPEND, 2 = SUMMARY, 3 = FUNNEL, 4 = TRAIL
+#        (APPEND)  name_len       5,990,004  i32
+#                  user_len       5,990,008  i32
+#                  path_len       5,990,012  i32
+#                  bytes          5,990,016  ...  name | user | path, packed
+#        (FUNNEL)  k              5,990,004  i32   number of requested event names
+#                  len_i          5,990,008 + 4*i  i32 (i < k)
+#                  name bytes     5,990,008 + 4*k  ...  packed contiguously
+#        (TRAIL)   user_len       5,990,004  i32
+#                  user bytes     5,990,016  ...
+#   LOG window    [6,000,000 .. 6,900,000)  the persistent region (snapshot/restore seam):
+#        total length   6,000,000  i32   total byte length of packed records (from 6,000,016)
+#        records        6,000,016  ...   record = [name_len i32][user_len i32][path_len i32]
+#                                                 [name bytes][user bytes][path bytes]
+#        capacity: 899,984 bytes of records
+#   COUNT table   [6,900,000 .. 7,290,000)  SUMMARY/FUNNEL scratch, rebuilt per report:
+#        entry = [name_off i32][name_len i32][count i32]  (name_off points INTO the log - the
+#        table copies no bytes). 32,500 entries max; a log with more distinct names than that
+#        reports "TABLE_FULL" (bounded and explicit, never silent truncation).
+#   RESULT: OUT_LEN_ADDR 7,299,996 i32, OUT_BASE 7,300,000 - same convention as eventlog.lm.
+#        APPEND       -> "APPENDED", or "FULL" (log untouched) when the record would not fit
+#        SUMMARY      -> "TOTAL <n>\n" then "<name> <count>\n" per distinct name, count
+#                        descending, first-seen order breaking ties
+#        FUNNEL       -> "<name> <count>\n" per requested name, in the requested order
+#        TRAIL        -> "EVENTS <n>\n" then "<name> <path>\n" per matching record, log order
+#
+# Honesty notes:
+#   - Every report is a full O(log) fold per invocation (SUMMARY/FUNNEL add O(d) table probes
+#     per record, d = distinct names so far). No indexes, no caches: v1 is the honest fold,
+#     and the fold IS fast because it is a native linear scan over packed bytes.
+#   - The SUMMARY sort is a selection sort over the d distinct names, O(d^2); d is small
+#     (event vocabularies are dozens of names, not thousands). Ties keep first-seen order,
+#     matching the insertion-order-preserving counter semantics reporting tools expect.
+#   - The log window is fixed 900KB in v1 and grows only via the established lockstep
+#     procedure (bump both runtimes' memory caps together), same as eventlog.lm.
+
+fn cmd_op_addr() -> Int { return 5990000 }
+fn cmd_a_addr() -> Int { return 5990004 }
+fn cmd_b_addr() -> Int { return 5990008 }
+fn cmd_c_addr() -> Int { return 5990012 }
+fn cmd_bytes_base() -> Int { return 5990016 }
+
+fn cmd_op() -> Int { return load32(cmd_op_addr()) }
+
+fn log_len_addr() -> Int { return 6000000 }
+fn log_base() -> Int { return 6000016 }
+fn log_cap() -> Int { return 899984 }
+fn log_len() -> Int { return load32(log_len_addr()) }
+
+fn table_base() -> Int { return 6900000 }
+fn table_max() -> Int { return 32500 }
+
+fn out_len_addr() -> Int { return 7299996 }
+fn out_base() -> Int { return 7300000 }
+
+# Write one byte at `pos`, return the next position.
+fn w1(pos: Int, ch: Int) -> Int {
+  store8(pos, ch)
+  return pos + 1
+}
+
+# Copy `n` bytes from absolute address `src` to `pos`, return the next position.
+fn wbytes(pos: Int, src: Int, n: Int) -> Int {
+  var p = pos
+  var k = 0
+  while k < n {
+    store8(p, load8(src + k))
+    p = p + 1
+    k = k + 1
+  }
+  return p
+}
+
+# Format a non-negative int as decimal ASCII digits (handles 0), return the next position.
+fn write_int(pos: Int, n: Int) -> Int {
+  if n == 0 {
+    return w1(pos, 48)
+  }
+  var digits = 0
+  var temp = n
+  while temp > 0 {
+    digits = digits + 1
+    temp = temp / 10
+  }
+  var divisor = 1
+  var i = 0
+  while i < digits - 1 {
+    divisor = divisor * 10
+    i = i + 1
+  }
+  var p = pos
+  var rem = n
+  var j = 0
+  while j < digits {
+    let d = rem / divisor
+    p = w1(p, 48 + d)
+    rem = rem - d * divisor
+    divisor = divisor / 10
+    j = j + 1
+  }
+  return p
+}
+
+fn finish(pos: Int) -> Unit {
+  store32(out_len_addr(), pos - out_base())
+  return ()
+}
+
+fn write_appended() -> Unit {
+  var p = out_base()
+  p = w1(p, 65)  p = w1(p, 80)  p = w1(p, 80)  p = w1(p, 69)  p = w1(p, 78)  p = w1(p, 68)  p = w1(p, 69)  p = w1(p, 68)  # APPENDED
+  finish(p)
+  return ()
+}
+
+fn write_full() -> Unit {
+  var p = out_base()
+  p = w1(p, 70)  p = w1(p, 85)  p = w1(p, 76)  p = w1(p, 76)  # FULL
+  finish(p)
+  return ()
+}
+
+fn write_table_full() -> Unit {
+  var p = out_base()
+  p = w1(p, 84)  p = w1(p, 65)  p = w1(p, 66)  p = w1(p, 76)  p = w1(p, 69)  # TABLE
+  p = w1(p, 95)  # _
+  p = w1(p, 70)  p = w1(p, 85)  p = w1(p, 76)  p = w1(p, 76)  # FULL
+  finish(p)
+  return ()
+}
+
+# 1 if the n bytes at a and b are equal, else 0.
+fn bytes_equal(a: Int, b: Int, n: Int) -> Int {
+  var k = 0
+  while k < n {
+    if load8(a + k) != load8(b + k) { return 0 }
+    k = k + 1
+  }
+  return 1
+}
+
+# Record accessors: a record starts at absolute address `r`.
+fn rec_name_len(r: Int) -> Int { return load32(r) }
+fn rec_user_len(r: Int) -> Int { return load32(r + 4) }
+fn rec_path_len(r: Int) -> Int { return load32(r + 8) }
+fn rec_name(r: Int) -> Int { return r + 12 }
+fn rec_user(r: Int) -> Int { return r + 12 + rec_name_len(r) }
+fn rec_path(r: Int) -> Int { return r + 12 + rec_name_len(r) + rec_user_len(r) }
+fn rec_size(r: Int) -> Int { return 12 + rec_name_len(r) + rec_user_len(r) + rec_path_len(r) }
+
+# APPEND: pack one event record at the tail of the log; "FULL" (log untouched) if it won't fit.
+fn do_append() -> Unit {
+  let nlen = load32(cmd_a_addr())
+  let ulen = load32(cmd_b_addr())
+  let plen = load32(cmd_c_addr())
+  let size = 12 + nlen + ulen + plen
+  let cur = log_len()
+  if cur + size > log_cap() {
+    write_full()
+    return ()
+  }
+  let off = log_base() + cur
+  store32(off, nlen)
+  store32(off + 4, ulen)
+  store32(off + 8, plen)
+  var p = off + 12
+  p = wbytes(p, cmd_bytes_base(), nlen + ulen + plen)
+  store32(log_len_addr(), cur + size)
+  write_appended()
+  return ()
+}
+
+# Table entry accessors: entry i is 12 bytes at table_base() + i * 12.
+fn t_name_off(i: Int) -> Int { return load32(table_base() + i * 12) }
+fn t_name_len(i: Int) -> Int { return load32(table_base() + i * 12 + 4) }
+fn t_count(i: Int) -> Int { return load32(table_base() + i * 12 + 8) }
+fn t_set(i: Int, name_off: Int, name_len: Int, count: Int) -> Unit {
+  store32(table_base() + i * 12, name_off)
+  store32(table_base() + i * 12 + 4, name_len)
+  store32(table_base() + i * 12 + 8, count)
+  return ()
+}
+fn t_bump(i: Int) -> Unit {
+  store32(table_base() + i * 12 + 8, t_count(i) + 1)
+  return ()
+}
+
+# Find the table entry whose name equals the name_len bytes at name_off, or -1.
+fn table_find(d: Int, name_off: Int, name_len: Int) -> Int {
+  var i = 0
+  while i < d {
+    if t_name_len(i) == name_len and bytes_equal(t_name_off(i), name_off, name_len) == 1 {
+      return i
+    }
+    i = i + 1
+  }
+  return 0 - 1
+}
+
+# Fold the log into the count table (one entry per distinct event name, first-seen order).
+# Returns the number of distinct names, or -1 if the table cap was exceeded.
+fn build_table() -> Int {
+  var d = 0
+  var pos = 0
+  let n = log_len()
+  while pos < n {
+    let r = log_base() + pos
+    let hit = table_find(d, rec_name(r), rec_name_len(r))
+    if hit >= 0 {
+      t_bump(hit)
+    } else {
+      if d >= table_max() {
+        return 0 - 1
+      }
+      t_set(d, rec_name(r), rec_name_len(r), 1)
+      d = d + 1
+    }
+    pos = pos + rec_size(r)
+  }
+  return d
+}
+
+# Count every record in the log (TOTAL line of the summary).
+fn count_records() -> Int {
+  var pos = 0
+  var count = 0
+  let n = log_len()
+  while pos < n {
+    count = count + 1
+    pos = pos + rec_size(log_base() + pos)
+  }
+  return count
+}
+
+# SUMMARY: "TOTAL <n>\n" then one "<name> <count>\n" line per distinct name, count descending,
+# first-seen order breaking ties (selection sort; entries are consumed by setting count to -1).
+fn do_summary() -> Unit {
+  let d = build_table()
+  if d < 0 {
+    write_table_full()
+    return ()
+  }
+  var p = out_base()
+  p = w1(p, 84)  p = w1(p, 79)  p = w1(p, 84)  p = w1(p, 65)  p = w1(p, 76)  # TOTAL
+  p = w1(p, 32)
+  p = write_int(p, count_records())
+  p = w1(p, 10)
+  var emitted = 0
+  while emitted < d {
+    var best = 0 - 1
+    var best_count = 0 - 1
+    var i = 0
+    while i < d {
+      if t_count(i) > best_count {
+        best = i
+        best_count = t_count(i)
+      }
+      i = i + 1
+    }
+    p = wbytes(p, t_name_off(best), t_name_len(best))
+    p = w1(p, 32)
+    p = write_int(p, best_count)
+    p = w1(p, 10)
+    t_set(best, t_name_off(best), t_name_len(best), 0 - 1)
+    emitted = emitted + 1
+  }
+  finish(p)
+  return ()
+}
+
+# FUNNEL: fold the log into the count table once, then answer each requested name in the
+# caller's order ("<name> <count>\n"; 0 when the name never occurred).
+fn do_funnel() -> Unit {
+  let d = build_table()
+  if d < 0 {
+    write_table_full()
+    return ()
+  }
+  let k = load32(cmd_a_addr())
+  var p = out_base()
+  var name_off = cmd_bytes_base() - 8 + 4 * k
+  var i = 0
+  while i < k {
+    let nlen = load32(cmd_b_addr() + 4 * i)
+    p = wbytes(p, name_off, nlen)
+    p = w1(p, 32)
+    let hit = table_find(d, name_off, nlen)
+    if hit >= 0 {
+      p = write_int(p, t_count(hit))
+    } else {
+      p = write_int(p, 0)
+    }
+    p = w1(p, 10)
+    name_off = name_off + nlen
+    i = i + 1
+  }
+  finish(p)
+  return ()
+}
+
+# TRAIL: one user's events, log order (append order IS time order, so no sort is needed).
+# "EVENTS <n>\n" then "<name> <path>\n" per matching record.
+fn do_trail() -> Unit {
+  let ulen = load32(cmd_a_addr())
+  let ubase = cmd_bytes_base()
+  var matches = 0
+  var pos = 0
+  let n = log_len()
+  while pos < n {
+    let r = log_base() + pos
+    if rec_user_len(r) == ulen and bytes_equal(rec_user(r), ubase, ulen) == 1 {
+      matches = matches + 1
+    }
+    pos = pos + rec_size(r)
+  }
+  var p = out_base()
+  p = w1(p, 69)  p = w1(p, 86)  p = w1(p, 69)  p = w1(p, 78)  p = w1(p, 84)  p = w1(p, 83)  # EVENTS
+  p = w1(p, 32)
+  p = write_int(p, matches)
+  p = w1(p, 10)
+  if not (matches == 0) {
+    pos = 0
+    while pos < n {
+      let r = log_base() + pos
+      if rec_user_len(r) == ulen and bytes_equal(rec_user(r), ubase, ulen) == 1 {
+        p = wbytes(p, rec_name(r), rec_name_len(r))
+        p = w1(p, 32)
+        p = wbytes(p, rec_path(r), rec_path_len(r))
+        p = w1(p, 10)
+      }
+      pos = pos + rec_size(r)
+    }
+  }
+  finish(p)
+  return ()
+}
+
+fn main(c: Console) -> Unit {
+  let op = cmd_op()
+  if op == 1 {
+    do_append()
+    return ()
+  }
+  if op == 2 {
+    do_summary()
+    return ()
+  }
+  if op == 3 {
+    do_funnel()
+    return ()
+  }
+  if op == 4 {
+    do_trail()
+    return ()
+  }
+  return ()
+}

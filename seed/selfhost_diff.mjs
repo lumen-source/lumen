@@ -25,11 +25,17 @@ const CONFORMANCE_LIST = [
   '../mu/examples/bitwise.lm',
   '../mu/examples/safe_div.lm',
   '../mu/examples/propagate.lm',
+  '../mu/examples/bools.lm',
+  '../examples/analytics/click_events.lm',
 ];
 
 // expected match floor: every program here must stay bit-identical or the harness exits 1.
 // safe_div/propagate joined the floor once lumenc.lm gained sum-type syntax (type decls,
 // match, ok/err constructors, the ? operator): 18/18 bit-identical.
+// bools joined the floor once lumenc.lm gained the boolean operators and/or/not: 19/19.
+// click_events (the analytics kernel, ~370 lines, and/or/not in production positions) joined
+// with the same change: 20/20 - the first real example whose authorship required the new
+// operators, compiled bit-identically by the compiler the language itself hosts.
 const EXPECTED_MATCH = [
   '../mu/examples/fib_print.lm',
   '../mu/examples/add.lm',
@@ -49,6 +55,8 @@ const EXPECTED_MATCH = [
   '../mu/examples/bitwise.lm',
   '../mu/examples/safe_div.lm',
   '../mu/examples/propagate.lm',
+  '../mu/examples/bools.lm',
+  '../examples/analytics/click_events.lm',
 ];
 
 async function main() {

@@ -58,6 +58,7 @@ jobs:
           node native_pipeline_test.mjs
           node native_fixpoint_test.mjs
           node state_eventlog_test.mjs
+          node analytics_events_test.mjs
           node native_handlers_test.mjs
           node native_socket_test.mjs
           node fuel_test.mjs
