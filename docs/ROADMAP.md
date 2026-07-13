@@ -21,6 +21,9 @@
 >
 > The living, per-commit narrative is `../SELFHOST_CAMPAIGN_LOG.md`; the exact runnable
 > language is `../LANGUAGE.md`.
+>
+> **The ten-year plan of record is `ROADMAP_2036.md`** - the bridge from the delivered
+> phases below to `../VISION_2035.md`, with arcs, exit gates, and kill criteria.
 
 Status: draft v0.1. This roadmap is deliberately honest about scope. Building a self-hosting, natively compiled language with its own toolchain is a multi-phase effort measured in many months to years, even with heavy AI assistance. The phases below each have a concrete exit criterion so progress is verifiable rather than vibes.
 
