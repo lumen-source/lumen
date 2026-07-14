@@ -1,5 +1,5 @@
 {
-  "generated_from": "f836a555d922c4ab6280c88f2c1bd784826c0924",
+  "generated_from": "36bd9735dc40af226bfe476306ba8173cdb3a607",
   "external_binaries": [
     "/usr/bin/true",
     "clang",
@@ -128,6 +128,10 @@
     {
       "path": "native/llvm_diff.mjs",
       "bytes": 3712
+    },
+    {
+      "path": "native/llvm_float_test.mjs",
+      "bytes": 2546
     },
     {
       "path": "native/lumemit_native.mjs",
@@ -371,12 +375,12 @@
     }
   ],
   "totals": {
-    "count": 86,
-    "bytes": 541175,
+    "count": 87,
+    "bytes": 543721,
     "by_category": {
       ".mjs": {
-        "count": 75,
-        "bytes": 493050
+        "count": 76,
+        "bytes": 495596
       },
       ".py": {
         "count": 3,
