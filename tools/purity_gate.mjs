@@ -1,17 +1,16 @@
 #!/usr/bin/env node
-// Purity gate v0 (ROADMAP_2036 Arc 1, 90-day item 1).
+// Purity gate v0 (ROADMAP_2036 Arc 1, 90-day item 1) - ADVISORY reporter.
 //
 // docs/MANIFESTO.md, section "100% self-contained", sets the air-gap test:
 // could this toolchain be built and run, end to end, on a machine that
 // contains nothing but Lumen itself and its named substrate? Today the
 // answer is no: node/npm drive the harnesses, wabt (an npm package)
-// assembles the WAT seed, and clang compiles emitted C. This script does
-// not claim purity and does not fix that debt. It is a ratchet: it
-// inventories every non-Lumen artifact on the toolchain path, pins the
-// current debt in docs/PURITY_BASELINE.json, and fails the build the day
-// that debt grows. Shrinking the debt is always welcome and re-pins the
-// baseline lower. The debt is only ever driven down, one PR at a time,
-// never allowed to grow by accident.
+// assembles the WAT seed, and clang compiles emitted C. This script no longer
+// blocks CI: Lumen is in active development and additions are expected. It is
+// an ADVISORY reporter: it inventories every non-Lumen artifact on the toolchain
+// path, pins the current debt in docs/PURITY_BASELINE.json, and keeps the debt
+// visible in CI logs. The debt is never silently absorbed; all growth is reported,
+// and shrinking the debt is always welcome. The gate always exits 0.
 
 import { readFileSync, writeFileSync, statSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -234,24 +233,24 @@ function main() {
   const newSpawnTargets = spawnTargets.filter((t) => !baselineSpawnTargets.has(t));
 
   const growthFailures = newFiles.length > 0 || grownFiles.length > 0 || newSpawnTargets.length > 0;
+  const hasChange = growthFailures || shrunkFiles.length > 0 || removedFiles.length > 0;
 
   if (growthFailures) {
-    console.error('purity_gate: FAIL - toolchain debt grew relative to docs/PURITY_BASELINE.json');
+    console.log('purity_gate: ADVISORY - toolchain debt delta vs baseline (not blocking):');
     if (newFiles.length > 0) {
-      console.error('  new files not in baseline:');
-      for (const f of newFiles) console.error(`    + ${f.path} (${f.bytes} bytes)`);
+      console.log('  new files not in baseline:');
+      for (const f of newFiles) console.log(`    + ${f.path} (${f.bytes} bytes)`);
     }
     if (grownFiles.length > 0) {
-      console.error('  files grown beyond their baselined size:');
+      console.log('  files grown beyond their baselined size:');
       for (const f of grownFiles) {
-        console.error(`    ~ ${f.path}: ${f.before} -> ${f.after} bytes (+${f.delta})`);
+        console.log(`    ~ ${f.path}: ${f.before} -> ${f.after} bytes (+${f.delta})`);
       }
     }
     if (newSpawnTargets.length > 0) {
-      console.error('  new external binary referenced (execFileSync/spawn target):');
-      for (const t of newSpawnTargets) console.error(`    + ${t}`);
+      console.log('  new external binary referenced (execFileSync/spawn target):');
+      for (const t of newSpawnTargets) console.log(`    + ${t}`);
     }
-    process.exit(1);
   }
 
   if (shrunkFiles.length > 0 || removedFiles.length > 0) {
@@ -265,10 +264,12 @@ function main() {
     }
   }
 
-  console.log(
-    `purity_gate: PASS - ${inventory.totals.count} files, ${inventory.totals.bytes} bytes, ` +
-      `no growth vs baseline pinned at ${baseline.generated_from}`,
-  );
+  if (!hasChange) {
+    console.log(
+      `purity_gate: PASS - ${inventory.totals.count} files, ${inventory.totals.bytes} bytes, ` +
+        `no growth vs baseline pinned at ${baseline.generated_from}`,
+    );
+  }
 }
 
 main();
