@@ -1,0 +1,10 @@
+type Point = { x: Float, y: Float }
+
+fn dist_sq(p: Point) -> Float {
+  return p.x * p.x + p.y * p.y
+}
+
+fn main(console: Console) -> Unit {
+  let p = Point { x: 3.0, y: 4.0 }
+  console.print_int(round(dist_sq(p)))
+}

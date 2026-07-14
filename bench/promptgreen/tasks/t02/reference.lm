@@ -1,0 +1,13 @@
+fn sum_upto(n: Int) -> Int {
+  var sum = 0
+  var i = 1
+  while i <= n {
+    sum = sum + i
+    i = i + 1
+  }
+  return sum
+}
+
+fn main(console: Console) -> Unit {
+  console.print_int(sum_upto(20))
+}

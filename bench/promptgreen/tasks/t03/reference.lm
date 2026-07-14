@@ -1,0 +1,7 @@
+fn greet(name: Text) -> Text {
+  return text_concat(text_concat("hello, ", name), "\n")
+}
+
+fn main(console: Console) -> Unit {
+  console.print(greet("lumen"))
+}

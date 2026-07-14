@@ -1,0 +1,7 @@
+fn area(w: Float, h: Float) -> Float {
+  return w * h
+}
+
+fn main(console: Console) -> Unit {
+  console.print_int(round(area(2.5, 4.0) * 100.0))
+}

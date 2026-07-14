@@ -1,0 +1,7 @@
+fn present_value(cashflow: Float, rate: Float, periods: Float) -> Float {
+  return cashflow / pow(1.0 + rate, periods)
+}
+
+fn main(console: Console) -> Unit {
+  console.print_int(round(present_value(110.25, 0.05, 2.0) * 100.0))
+}

@@ -1,0 +1,7 @@
+fn main(console: Console) -> Unit {
+  store8(524400, 10)
+  store8(524401, 20)
+  store8(524402, 30)
+  let sum = load8(524400) + load8(524401) + load8(524402)
+  console.print_int(sum)
+}

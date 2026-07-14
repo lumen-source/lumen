@@ -1,0 +1,22 @@
+type DivError = | DivByZero
+
+fn checked_div(a: Int, b: Int) -> Result[Int, DivError] {
+  if b == 0 {
+    return err(DivByZero)
+  }
+  return ok(a / b)
+}
+
+fn show(r: Result[Int, DivError], console: Console) -> Unit {
+  match r {
+    ok(v) -> console.print(text_concat(text_concat("ok ", int_to_text(v)), "\n"))
+    err(e) -> match e {
+      DivByZero -> console.print("div by zero\n")
+    }
+  }
+}
+
+fn main(console: Console) -> Unit {
+  show(checked_div(20, 4), console)
+  show(checked_div(9, 0), console)
+}

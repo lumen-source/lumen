@@ -1,0 +1,7 @@
+fn combine(a: Int, b: Int, c: Int) -> Int {
+  return (a + b) * c
+}
+
+fn main(console: Console) -> Unit {
+  console.print_int(combine(3, 4, 5))
+}
