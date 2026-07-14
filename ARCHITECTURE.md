@@ -96,6 +96,7 @@ oracle forever. See `docs/NATIVE_BACKEND_PLAN.md` for history.
 
 <!-- AUTO:emitters -->
 - `emit`
+- `emit_arm64_spike`
 - `emit_fn`
 - `emit_llvm`
 - `optimize`
@@ -139,6 +140,7 @@ transparently proxied until they too are moved onto the kernel. Default (no orig
 
 <!-- AUTO:kernels -->
 - `content_type_value`
+- `handlers_demo`
 - `hex_decode`
 - `hex_encode`
 - `http_chunked`
@@ -189,12 +191,20 @@ regression; the Forge adds adversarial coverage. The full gate list run by `.git
 - `native_fn_test.mjs`
 - `native_float_test.mjs`
 - `llvm_diff.mjs`
+- `llvm_float_test.mjs`
 - `standalone_diff.mjs`
 - `heapcap_test.mjs`
 - `fixpoint_emit_test.mjs`
 - `native_compile_test.mjs`
 - `native_pipeline_test.mjs`
 - `native_fixpoint_test.mjs`
+- `arm64_spike_check.mjs`
+- `state_eventlog_test.mjs`
+- `analytics_events_test.mjs`
+- `native_handlers_test.mjs`
+- `native_socket_test.mjs`
+- `fuel_test.mjs`
+- `tenant_routing_test.mjs`
 - `http_parse_test.mjs`
 - `http_headers_test.mjs`
 - `http_response_test.mjs`
