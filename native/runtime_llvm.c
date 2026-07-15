@@ -5,8 +5,14 @@
 #include <math.h>
 #include <string.h>
 
+// W6/S1 (LLVM runtime side only - see fix/llvm-stdout-buffering's commit body): fully buffered,
+// 64KB, instead of unbuffered. Safe because every abrupt-termination path in this file already
+// fflushes before exit()/abort() (see buffered_stdout_test.mjs's header comment for the full
+// audit); exit(N) itself is standard-guaranteed to flush regardless of buffering mode. The
+// emit_fn.lm-emitted runtime (a different file, its own setvbuf call) is NOT touched by this -
+// tracked separately as W6-S1b, scheduled after R5 retires the wasm path.
 __attribute__((constructor)) void init_stdout(void) {
-  setvbuf(stdout, 0, _IONBF, 0);
+  setvbuf(stdout, 0, _IOFBF, 65536);
 }
 
 static void pic(int64_t v){uint64_t u; int n; char b[24];
