@@ -61,6 +61,7 @@ jobs:
           node native_decimal_test.mjs
           node llvm_diff.mjs
           node llvm_float_test.mjs
+          node llvm_decimal_test.mjs
           node standalone_diff.mjs
           node heapcap_test.mjs
           node fixpoint_emit_test.mjs

@@ -129,3 +129,97 @@ void lm_printtext(int64_t a) {
   int32_t len = *(int32_t*)a;
   fwrite((char*)a + 4, 1, len, stdout);
 }
+
+// Dec (D3): exact-decimal runtime helpers for emit_llvm.lm's DMUL(68)/DDIV(69)/D2TEXT(70)
+// lowering. Ports seed/lumenc.wat's $dec_mul/$dec_div/$dec2text (the oracle) bit-for-bit, but
+// uses the target's native __int128 instead of the WAT's hand-rolled 32-bit-limb multiply +
+// bit-by-bit restoring division: the widest product possible here (two Dec magnitudes, each
+// <= INT64_MAX) is <= (2^63-1)^2 < 2^126, and the widest DDIV numerator (a magnitude * 1e6) is
+// << 2^127, so a single unsigned __int128 multiply/divide is exact and never itself overflows -
+// the WAT's separate "$dec_qoverflow" 64-bit-quotient-register flag has no equivalent need here
+// (its job is folded into the same final `q > INT64_MAX` check both paths already require).
+// DADD(66)/DSUB(67) are cheap enough to stay inline IR (llvm.sadd/ssub.with.overflow.i64) in
+// emit_llvm.lm itself; only the 128-bit-product ops and text formatting live here.
+//
+// Trap idiom: fflush(NULL) + abort(), matching the .ll-emitted trap blocks (fflush(ptr null) +
+// call void @abort() + unreachable) byte-for-byte in effect, so a Dec runtime trap and an
+// IR-level Dec trap (DADD/DSUB overflow) produce the same signal (SIGABRT, nonzero exit).
+static void lm_dec_trap(void) { fflush(NULL); abort(); }
+
+int64_t lm_dec_mul(int64_t a, int64_t b) {
+  int32_t neg = 0;
+  uint64_t ua, ub;
+  if (a < 0) { neg ^= 1; ua = (uint64_t)(-a); } else { ua = (uint64_t)a; }   // a,b never INT64_MIN (D1 invariant)
+  if (b < 0) { neg ^= 1; ub = (uint64_t)(-b); } else { ub = (uint64_t)b; }
+  unsigned __int128 prod = (unsigned __int128)ua * (unsigned __int128)ub;
+  unsigned __int128 q = prod / (unsigned __int128)1000000;
+  unsigned __int128 r = prod % (unsigned __int128)1000000;
+  unsigned __int128 r2 = r * 2;
+  if (r2 > (unsigned __int128)1000000) { q += 1; }                          // round half away from zero on the magnitude...
+  else if (r2 == (unsigned __int128)1000000) { if (q & 1) q += 1; }         // ...ties to even (sign applied after, below)
+  if (q > (unsigned __int128)INT64_MAX) lm_dec_trap();
+  int64_t sq = (int64_t)q;
+  return neg ? -sq : sq;
+}
+
+int64_t lm_dec_div(int64_t a, int64_t b) {
+  if (b == 0) lm_dec_trap();
+  int32_t neg = 0;
+  uint64_t ua, ub;
+  if (a < 0) { neg ^= 1; ua = (uint64_t)(-a); } else { ua = (uint64_t)a; }
+  if (b < 0) { neg ^= 1; ub = (uint64_t)(-b); } else { ub = (uint64_t)b; }
+  unsigned __int128 numer = (unsigned __int128)ua * (unsigned __int128)1000000;
+  unsigned __int128 q = numer / (unsigned __int128)ub;
+  unsigned __int128 r = numer % (unsigned __int128)ub;
+  unsigned __int128 r2 = r * 2;
+  if (r2 > (unsigned __int128)ub) { q += 1; }
+  else if (r2 == (unsigned __int128)ub) { if (q & 1) q += 1; }
+  if (q > (unsigned __int128)INT64_MAX) lm_dec_trap();
+  int64_t sq = (int64_t)q;
+  return neg ? -sq : sq;
+}
+
+// dec2text: canonical Dec -> Text. Never traps (i64::MIN is unreachable for a valid Dec, so
+// negation is always total - same argument as the WAT's own $dec2text comment).
+int64_t lm_dec2text(int64_t v) {
+  int32_t neg = 0;
+  if (v < 0) { neg = 1; v = -v; }
+  int64_t ip = v / 1000000;
+  int64_t fp = v % 1000000;
+  int32_t nd = 1;
+  int64_t tmp = ip;
+  while (1) {
+    tmp = tmp / 10;
+    if (tmp == 0) break;
+    nd++;
+  }
+  // trim trailing zero fractional digits, keep at least 1 (so "3.0" not "3")
+  int32_t flen = 6;
+  int64_t probe = fp;
+  while (flen > 1 && probe % 10 == 0) {
+    probe = probe / 10;
+    flen--;
+  }
+  int32_t len = neg + nd + 1 + flen;
+  int64_t ptr = lm_alloc_bytes(4 + len);
+  *(int32_t*)ptr = len;
+  char* w = (char*)ptr + 4 + len;
+  int64_t pcur = probe;
+  for (int32_t i = 0; i < flen; i++) {
+    w--;
+    *w = (char)(48 + (pcur % 10));
+    pcur = pcur / 10;
+  }
+  w--;
+  *w = '.';
+  int64_t icur = ip;
+  for (int32_t i = 0; i < nd; i++) {
+    w--;
+    *w = (char)(48 + (icur % 10));
+    icur = icur / 10;
+  }
+  if (neg) {
+    *((char*)ptr + 4) = '-';
+  }
+  return ptr;
+}
