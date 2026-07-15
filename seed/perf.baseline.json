@@ -1,5 +1,5 @@
 {
-  "compilesPerSec": 10080,
-  "compileUs": 99.2,
-  "callsPerSec": 12204353
+  "compilesPerSec": 10400,
+  "compileUs": 96.2,
+  "callsPerSec": 12234583
 }

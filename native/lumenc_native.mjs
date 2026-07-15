@@ -47,6 +47,12 @@ export const LIT_HEAP_BYTES = LIT_HEAP_CEIL - LIT_HEAP_BASE;   // 36288
 const DIAG_BASE = 297000;
 const DIAG_CEIL = 299000;
 const DIAG_RECORD_CAP = Math.floor((DIAG_CEIL - DIAG_BASE) / 12);   // 500 (code,name_off,name_len) triples
+// TOKENS() = 299000 (seed/lumenc.lm) - immediately after DIAG_CEIL, per the D4/#87 repack. The
+// two trailer-dump sites below still read the PRE-#87 address (396000) inherited from this
+// branch's pre-rebase state; that stale offset silently reads zeroed memory, so lumen_tokens
+// always returned an all-zero token stream (loop_test.mjs's "lumen_tokens returns the token
+// stream with lexemes" - caught post-rebase, fixed here to match main's #87 repack).
+const TOKENS_BASE = 299000;
 
 const EMIT_FN_SRC = fs.readFileSync(new URL('./emit_fn.lm', import.meta.url), 'utf8');
 const LUMENC_SRC = fs.readFileSync(new URL('../seed/lumenc.lm', import.meta.url), 'utf8');
@@ -170,7 +176,7 @@ static void lm_resident_loop(void){
     if(ndiag<0)ndiag=0;
     if(ndiag>${DIAG_RECORD_CAP})ndiag=${DIAG_RECORD_CAP};
     // R5: symbol-table (lumenc.lm's SYMBOLS()=170000, count at load32(12)) and token-stream
-    // (TOKENS()=396000, count at load32(8)) trailers, appended after the diagnostics block, so
+    // (TOKENS()=299000, count at load32(8)) trailers, appended after the diagnostics block, so
     // the MCP introspection tools (lumen_symbols/lumen_tokens/lumen_profile) can retire their
     // wasm-instance memory peek without losing any capability - lumenc.lm tracks both at the
     // SAME addresses the wasm seed does (see seed/lumenc.lm's own header comment), so this is a
@@ -199,7 +205,7 @@ static void lm_resident_loop(void){
     fwrite(h4,1,4,stdout);
     if(ndiag>0)fwrite(LMEM+${DIAG_BASE},1,(size_t)ndiag*12,stdout);
     fwrite(h5,1,4,stdout);
-    if(ntok>0)fwrite(LMEM+396000,1,(size_t)ntok*12,stdout);
+    if(ntok>0)fwrite(LMEM+${TOKENS_BASE},1,(size_t)ntok*12,stdout);
     fwrite(h6,1,4,stdout);
     if(nsym>0)fwrite(LMEM+170000,1,(size_t)nsym*12,stdout);
     fflush(stdout);
@@ -262,7 +268,7 @@ int main(int argc,char**argv){
   unsigned char h5[4]={(unsigned char)ntok,(unsigned char)(ntok>>8),(unsigned char)(ntok>>16),(unsigned char)(ntok>>24)};
   unsigned char h6[4]={(unsigned char)nsym,(unsigned char)(nsym>>8),(unsigned char)(nsym>>16),(unsigned char)(nsym>>24)};
   fwrite(h5,1,4,stdout);
-  if(ntok>0)fwrite(LMEM+396000,1,(size_t)ntok*12,stdout);
+  if(ntok>0)fwrite(LMEM+${TOKENS_BASE},1,(size_t)ntok*12,stdout);
   fwrite(h6,1,4,stdout);
   if(nsym>0)fwrite(LMEM+170000,1,(size_t)nsym*12,stdout);
   return 0;
