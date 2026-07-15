@@ -26,6 +26,7 @@ export const CASES = [
   ['../mu/examples/arrays.lm', '3\n15000\n45000\n2\n84388\n'],
   ['../mu/examples/records.lm', '7\n4\n15000\n22500\n5\n40000\n'],
   ['../mu/examples/floats.lm', '15000\n2500\n60000\n6000\n104506\n3989\n-15000\n-3\n1\n7\n2\n2\n12247\n15000\n44817\n4055\n22500\n'],
+  ['../mu/examples/decimal.lm', '0.1d + 0.2d == 0.3d: 1\n0.1d + 0.2d = 0.3\n1.50d = 1.5\n-3d = -3.0\n0.000001d = 0.000001\n19.99d + 3 = 22.99\n100 - 1.50d = 98.5\n0.5d * 1.000001d (ties to even, no change) = 0.5\n0.5d * 1.000003d (ties to even, rounds up) = 0.500002\ndec_div(10.00d, 3) = 3.333333\naccount_value(1000.00d, 5.00d) = 1050.0\ndec_to_float(1.50d) * 2.0 * 100.0 (via to_int) = 300\n'],   // Dec end-to-end (D4): exact literals, 0.1+0.2==0.3 proof, add/sub/mul/dec_div, Int coercion, unary minus, dec_to_text/dec_to_float
   ['native/test_load32.lm', '7\n65\n'],   // raw-memory keystone: store32/load32 + store8/load8 round-trip
   ['../examples/black_scholes.lm', 'bs_call=10.450576\n'],
   ['../examples/finance/black_scholes.lm', '104506\n\n60401\n\n154860\n\n79020\n\n'],   // the certified pricing table, scaled x10000
