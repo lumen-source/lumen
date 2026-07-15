@@ -81,11 +81,20 @@ function patchMainToEmitDriver(csrc, base) {
   return csrc.replace(m[0], driver);
 }
 
-// Build the native lumemit binary. Returns { bin, entry }.
-export async function buildLumemitNative(opt = '-O2') {
+// Produce the self-contained C source of the native lumemit (emitter) binary: emit_fn.lm
+// emitting ITSELF to C, plus the length-framed stdin driver. `clang <this> -o lumemit0` yields
+// the native emitter with zero wasm. This is the emitter's R1-style reproducible genesis;
+// generating it runs the seed once (author time only), the checked-in artifact is what the
+// wat-free build and the trust chain consume. Gated by native/emitter_bootstrap_test.mjs.
+export async function emitLumemitBootstrapC() {
   const ef = await compileToIR(EMIT_FN_SRC);
   const csrc = await emitWith(EMIT_FN_SRC, ef.words, ef.main, ef.strings, EMIT_FN_BASE, EMIT_FN_CEIL);
-  const patched = patchMainToEmitDriver(csrc, EMIT_FN_BASE);
+  return patchMainToEmitDriver(csrc, EMIT_FN_BASE);
+}
+
+// Build the native lumemit binary. Returns { bin, entry }.
+export async function buildLumemitNative(opt = '-O2') {
+  const patched = await emitLumemitBootstrapC();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumemit-native-'));
   const cfile = path.join(dir, 'lumemit.c'), bin = path.join(dir, 'lumemit');
   fs.writeFileSync(cfile, patched);
