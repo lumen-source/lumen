@@ -1,5 +1,8 @@
 # One-Year Roadmap: Lumen, self-hosted to the metal
 
+> **The ten-year plan of record is `ROADMAP_2036.md`**, which absorbs this file's phases whole
+> as its Arc 1; read that document for the current arcs, exit gates, and kill criteria.
+>
 > The plan of record for the year. Every quarter has a concrete exit criterion so progress is
 > verifiable rather than vibes. The living, per-commit narrative is `../SELFHOST_CAMPAIGN_LOG.md`;
 > the exact runnable language is `../LANGUAGE.md`.
