@@ -1,43 +1,86 @@
 # lumenc.lm: The self-hosted Lumen compiler!
 # Memory map mirrors the seed's proven layout (SRC 100000, SYMBOLS 170000, params/locals
-# 177000/177500, FIXUPS 178000, TOKENS 396000, literal heap 488000) so a self-compile fits;
+# 177000/177500, FIXUPS 178000, TOKENS 299000, literal heap 488000) so a self-compile fits;
 # only CODE (211328) differs, because the seed's CODE_BASE holds this compiler's own IR.
 # (D4: SYMBOLS/PARAMS/LOCALS/FIXUPS shifted +20000 from the pre-Dec layout to widen SRC to
 # 70000 bytes -- lumenc.lm itself, now with Dec support, exceeds the old 50000-byte SRC cap
-# when it compiles itself. SEPARATELY, D4 also shifted VARIANTS/PTYPES/LTYPES/RETTYPES/
-# FIELDS/RECTYPES/DIAG/TOKENS/HEAP by +100000 (270000->370000 etc): the self-hosted
-# compiler's OWN CODE() buffer -- where it accumulates the IR of whatever it is compiling --
-# had only [211328,270000) = 14668 words of headroom before it collided with VARIANTS, and
-# lumenc.lm's self-compile now needs >15000 words with Dec support. Confirmed empirically:
-# without this shift, `ptype(0)` reads back a stray IR opcode instead of 0/1/2 (CODE growth
-# overran PTYPES' bytes) and the self-hosted compiler's own TYPEMAP output on itself diverges
-# from the seed's -- see native_resident_test.mjs / native_fixpoint_test.mjs / selfhost_diff.mjs
-# SELF(lumenc.lm). CODE now has [211328,370000) = 39668 words of room.)
+# when it compiles itself.
+# GAP-A fix (native/selfcompile_diff.mjs): the earlier D4 pass shifted VARIANTS/PTYPES/LTYPES/
+# RETTYPES/FIELDS/RECTYPES/DIAG/TOKENS by +100000 (270000->370000 etc) to give CODE's growth
+# room, but the literal-heap start (set_hp's initial value in lex_compile) is baked into every
+# compiled program's own emitted IR as an absolute address (string-literal pointers are
+# compile-time-resolved constants, not relocatable offsets) and so MUST stay pinned at the
+# seed's own 488000 -- it cannot shift the way the other regions did. That pinned ceiling
+# capped TOKENS at [396000,488000) = 92000 bytes = 7666 tokens, silently below what a
+# real self-hosted compile needs (native/emit_fn.lm: 7903 tokens; native/emit_llvm.lm: 12604;
+# lumenc.lm compiling itself: 14420) -- tokens at index >=7666 were silently clobbered by the
+# literal-heap bump allocator (heap and TOKENS are different regions, but TOKENS's own upper
+# end had crept forward to overlap the pinned heap start) the moment the FIRST string literal
+# was emitted during parse. Lexing itself stayed correct (every token is written up front,
+# before any heap bump happens, so token COUNTS always matched the seed exactly); the
+# corruption only surfaced once parsing walked far enough into the file to re-read an
+# already-clobbered token, manifesting as a handful of parse-recovery diagnostics (E0001/E0004)
+# with garbage spans, never as a lex-level divergence.
+# Fix: CODE's own reserved room was 39668 words (158672 bytes) but self-compiling lumenc.lm
+# (the largest of the four toolchain sources) needs only 16503 -- CODE was over-provisioned by
+# more than 2x. Shrinking CODE's reserved room to 19668 words (78672 bytes, still +19% headroom
+# over the 16503 high-water mark) and repacking VARIANTS/PTYPES/LTYPES/RETTYPES/FIELDS/RECTYPES/
+# DIAG immediately after it (each kept at least as large as before; RECTYPES/DIAG, both
+# originally sized for far more entries than any of these files ever registers, are trimmed to
+# still-generous fixed sizes) reclaims enough of that slack to widen TOKENS to
+# [299000,488000) = 189000 bytes = 15750 tokens (+9% headroom over the 14420 high-water mark)
+# without moving the pinned heap start and without changing a single baked address in any
+# emitted program. See native_resident_test.mjs / native_fixpoint_test.mjs / selfhost_diff.mjs
+# SELF(lumenc.lm) for the self-compile bit-identity this must keep holding.
 fn SRC() -> Int { return 100000 }
-fn TOKENS() -> Int { return 396000 }
+fn TOKENS() -> Int { return 299000 }
 fn SYMBOLS() -> Int { return 170000 }
 fn PARAMS() -> Int { return 177000 }
+# LOCALS (D6, GAP-A prefix-bisect find): entries are 8 bytes (name_off, name_len), get_nlocal()
+# resets to 0 at the start of EVERY function (c_fn, set_nlocal(0)) and never shrinks again until
+# the next fn - so its true capacity requirement is "however many distinct `let`/`var` bindings
+# the single largest function in any toolchain source declares", not a whole-program budget.
+# The old span [177500,178000) = 500 bytes = 62 slots was fine for ordinary functions but
+# native/emit_llvm.lm's emit_op() (one giant per-opcode dispatch, ~70 `if op == N` arms sharing
+# one function body) declares 163 distinct locals across its lifetime. Slot 63 onward silently
+# overran into FIXUPS' own (pos, off, len) records starting at the old 178000, corrupting
+# in-flight fixups with garbage (off, len) pairs that -- by coincidence, since a local's own
+# (off, len) IS a valid-looking (off, len) once misread as a fixup record's tail -- decoded as
+# plausible-looking but bogus forward-reference names ('reg2', 'hi', 'rshift', 'rovf', ...),
+# so resolve_fixups's sym_find() correctly failed to find a "function" by that name and emitted
+# a real but SPURIOUS E0002 "unknown function" for each one (68 on the actual file; the found
+# minimal repro is emit_llvm.lm's emit_op alone). Symptom only appears on this one huge function
+# because none of the toolchain's other functions declare anywhere near 62 locals - the earlier
+# GAP-A tests never exercised this ceiling.
+# Fix: widen LOCALS to 4000 bytes (500 slots, +207% over the 163 high-water mark) by pushing
+# FIXUPS from 178000 to 181500 - FIXUPS's real ceiling is CODE at 211328 (not TOKENS, which
+# sits much further out at 299000, past CODE/VARIANTS/PTYPES/etc.), so [181500,211328) =
+# 29828 bytes = 2485 fixup slots is still enormous headroom versus the dozens any file
+# actually needs, and nothing downstream of FIXUPS had to move.
 fn LOCALS() -> Int { return 177500 }
-fn FIXUPS() -> Int { return 178000 }
+fn FIXUPS() -> Int { return 181500 }
 fn CODE() -> Int { return 211328 }
 fn HEAP() -> Int { return 400000 }
-# sum-type variant table: (name_off, name_len, tag) x 12 bytes, well clear of CODE growth
-# and the DIAG_BASE-style error records at 390000.
-fn VARIANTS() -> Int { return 370000 }
-fn VARIANT_OK_LIT() -> Int { return 371000 }
-fn VARIANT_ERR_LIT() -> Int { return 371010 }
+# sum-type variant table: (name_off, name_len, tag) x 12 bytes, immediately after CODE's
+# (shrunk but still generous) reserved room and well clear of the DIAG_BASE error records.
+fn VARIANTS() -> Int { return 290000 }
+fn VARIANT_OK_LIT() -> Int { return 291000 }
+fn VARIANT_ERR_LIT() -> Int { return 291010 }
 # static-type side tables (4 bytes per entry, parallel to PARAMS/LOCALS/SYMBOLS): 0 = Int/Text/
 # other, 1 = Float - the only distinction the IR's TYPEMAP (op 57) and coercion rules need.
-fn PTYPES() -> Int { return 372000 }
-fn LTYPES() -> Int { return 373000 }
-fn RETTYPES() -> Int { return 374000 }
+fn PTYPES() -> Int { return 292000 }
+fn LTYPES() -> Int { return 293000 }
+fn RETTYPES() -> Int { return 294000 }
 # record tables, mirroring the seed's GLOBAL field model: fields are numbered by NAME across
 # all record types, first registration wins (index AND type). FIELDS entries are
 # (name_off, name_len, ftype) x 12 bytes, the entry position IS the global field index.
 # RECTYPES entries are (name_off, name_len, arity) x 12 bytes, where arity is
 # max(global index of the type's own fields) + 1 - the array size a construction allocates.
-fn FIELDS() -> Int { return 375000 }
-fn RECTYPES() -> Int { return 376000 }
+# (Trimmed from the pre-GAP-A 14000-byte/1166-entry size to 1000 bytes/83 entries: still far
+# more record types than any toolchain source declares, and the reclaimed 13000 bytes goes to
+# TOKENS above.)
+fn FIELDS() -> Int { return 295000 }
+fn RECTYPES() -> Int { return 296000 }
 
 # Globals mapped to memory [0..1024)
 fn get_emit() -> Int { return load32(0) }
@@ -142,10 +185,14 @@ fn eqlit(off: Int, len: Int, p: Int, plen: Int) -> Int {
   return streq(off, p, len)
 }
 
-# token accessors
-fn tk(i: Int) -> Int { return load32(TOKENS() + i * 12) }
-fn ta(i: Int) -> Int { return load32(TOKENS() + i * 12 + 4) }
-fn tb(i: Int) -> Int { return load32(TOKENS() + i * 12 + 8) }
+# token accessors. SAFETY (mirrors the seed .wat's $tk/$ta/$tb): any index at or past
+# get_ntok() reads as EOF (kind 14, payload 0), so every `tk==14` guard correctly detects
+# end-of-stream and no parser loop can walk past the token region into stale/unwritten
+# memory from a prior compile (which is what let an unbalanced-brace input like an
+# `else if` mishandled elsewhere spin forever instead of raising E0004).
+fn tk(i: Int) -> Int { if i >= get_ntok() { return 14 } return load32(TOKENS() + i * 12) }
+fn ta(i: Int) -> Int { if i >= get_ntok() { return 0 } return load32(TOKENS() + i * 12 + 4) }
+fn tb(i: Int) -> Int { if i >= get_ntok() { return 0 } return load32(TOKENS() + i * 12 + 8) }
 fn tokset(i: Int, k: Int, a: Int, bb: Int) -> Unit {
   let base = TOKENS() + i * 12
   store32(base, k)
@@ -872,7 +919,7 @@ fn var_find(off: Int, len: Int) -> Int {
 }
 
 fn err_add(code: Int, off: Int, len: Int) -> Unit {
-  let base = 390000 + get_nerr() * 12
+  let base = 297000 + get_nerr() * 12
   store32(base, code)
   store32(base + 4, off)
   store32(base + 8, len)
@@ -1315,7 +1362,11 @@ fn lex(srclen: Int) -> Unit {
                         if c == 124 { val = 27 }
                         if c == 63 { val = 28 }
                         if val != 0 {
-                          tokset(n, val, 0, 0)
+                          # GAP-B fix: the seed stores the source position (addr, len 1) for
+                          # every one-shot single-char token here (so an E0007/E0008
+                          # diagnostic anchored on the operator keeps its ':+'/':/' name
+                          # suffix); this lexer was dropping it to (0,0) unconditionally.
+                          tokset(n, val, SRC() + i, 1)
                           n = n + 1
                           i = i + 1
                         }
@@ -1525,7 +1576,7 @@ fn c_primary() -> Unit {
       if tk(get_tp()) == 7 { adv() }
       c_expr()
       if tk(get_tp()) == 4 { adv() }
-      emit_dec_arith(ta1, 69)
+      emit_dec_arith(ta1, 69, off, length)
       return ()
     }
 
@@ -1745,10 +1796,10 @@ fn emit_cmp(lt: Int, intop: Int, fop: Int) -> Unit {
 # there is no DFROMIU: this reuses the tmp_local scratch-slot shuffle (SETLOCAL tmp / DFROMI
 # / GETARG tmp) exactly as the seed's own emitter does, producing the identical IR sequence
 # op-for-op (verified by selfhost_diff's bit-identical comparison, not just by inspection).
-fn emit_dec_arith(lt: Int, decop: Int) -> Unit {
+fn emit_dec_arith(lt: Int, decop: Int, opoff: Int, oplen: Int) -> Unit {
   let rt = get_etype()
   if lt == 1 or rt == 1 {
-    err_add(7, 0, 0)
+    err_add(7, opoff, oplen)
     emitw(3)
     set_etype(2)
     return ()
@@ -1768,10 +1819,10 @@ fn emit_dec_arith(lt: Int, decop: Int) -> Unit {
 
 # Unified entry point for '+' and '*' (and dec_div's own DDIV emission): routes to
 # emit_dec_arith when Dec is involved, else calls emit_arith exactly as before.
-fn emit_arith2(lt: Int, intop: Int, fop: Int, decop: Int) -> Unit {
+fn emit_arith2(lt: Int, intop: Int, fop: Int, decop: Int, opoff: Int, oplen: Int) -> Unit {
   let rt = get_etype()
   if lt == 2 or rt == 2 {
-    emit_dec_arith(lt, decop)
+    emit_dec_arith(lt, decop, opoff, oplen)
     return ()
   }
   emit_arith(lt, intop, fop)
@@ -1780,10 +1831,10 @@ fn emit_arith2(lt: Int, intop: Int, fop: Int, decop: Int) -> Unit {
 # Dec-aware comparison: same Float-mix ban and Int-coercion shuffle as emit_dec_arith, but
 # Dec-Dec (once same-scaled) reuses the given INT comparison op directly -- the same-scale
 # invariant makes a raw i64 compare exact, so there are no separate Dec comparison opcodes.
-fn emit_dec_cmp(lt: Int, intop: Int) -> Unit {
+fn emit_dec_cmp(lt: Int, intop: Int, opoff: Int, oplen: Int) -> Unit {
   let rt = get_etype()
   if lt == 1 or rt == 1 {
-    err_add(7, 0, 0)
+    err_add(7, opoff, oplen)
     emitw(3)
     set_etype(0)
     return ()
@@ -1801,10 +1852,10 @@ fn emit_dec_cmp(lt: Int, intop: Int) -> Unit {
   set_etype(0)
 }
 
-fn emit_cmp2(lt: Int, intop: Int, fop: Int) -> Unit {
+fn emit_cmp2(lt: Int, intop: Int, fop: Int, opoff: Int, oplen: Int) -> Unit {
   let rt = get_etype()
   if lt == 2 or rt == 2 {
-    emit_dec_cmp(lt, intop)
+    emit_dec_cmp(lt, intop, opoff, oplen)
     return ()
   }
   emit_cmp(lt, intop, fop)
@@ -1814,16 +1865,16 @@ fn emit_cmp2(lt: Int, intop: Int, fop: Int) -> Unit {
 # should say Float and Dec never mix, not send the user to dec_div with a Float argument
 # dec_div cannot accept either). Only once Float is ruled out does a Dec operand (bare or
 # Int-coerced) ban '/' outright (E0008; use dec_div). Neither operand Dec: unchanged.
-fn c_div_op(lt: Int) -> Unit {
+fn c_div_op(lt: Int, opoff: Int, oplen: Int) -> Unit {
   let rt = get_etype()
   if (lt == 1 or rt == 1) and (lt == 2 or rt == 2) {
-    err_add(7, 0, 0)
+    err_add(7, opoff, oplen)
     emitw(3)
     set_etype(2)
     return ()
   }
   if lt == 2 or rt == 2 {
-    err_add(8, 0, 0)
+    err_add(8, opoff, oplen)
     emitw(3)
     set_etype(2)
     return ()
@@ -1836,8 +1887,10 @@ fn c_mul() -> Unit {
   var loop = 1
   while loop == 1 {
     let k = tk(get_tp())
-    if k == 17 { adv()  let lt = get_etype()  c_unary()  emit_arith2(lt, 11, 34, 68) } else {
-    if k == 18 { adv()  let lt2 = get_etype()  c_unary()  c_div_op(lt2) } else {
+    let opoff = ta(get_tp())
+    let oplen = tb(get_tp())
+    if k == 17 { adv()  let lt = get_etype()  c_unary()  emit_arith2(lt, 11, 34, 68, opoff, oplen) } else {
+    if k == 18 { adv()  let lt2 = get_etype()  c_unary()  c_div_op(lt2, opoff, oplen) } else {
     if k == 26 { adv()  c_unary()  emitw(24)  set_etype(0) } else {
       loop = 0
     }}}
@@ -1849,8 +1902,10 @@ fn c_add() -> Unit {
   var loop = 1
   while loop == 1 {
     let k = tk(get_tp())
-    if k == 10 { adv()  let lt = get_etype()  c_mul()  emit_arith2(lt, 3, 32, 66) } else {
-    if k == 11 { adv()  let lt2 = get_etype()  c_mul()  emit_arith2(lt2, 4, 33, 67) } else {
+    let opoff = ta(get_tp())
+    let oplen = tb(get_tp())
+    if k == 10 { adv()  let lt = get_etype()  c_mul()  emit_arith2(lt, 3, 32, 66, opoff, oplen) } else {
+    if k == 11 { adv()  let lt2 = get_etype()  c_mul()  emit_arith2(lt2, 4, 33, 67, opoff, oplen) } else {
       loop = 0
     }}
   }
@@ -1859,12 +1914,14 @@ fn c_add() -> Unit {
 fn c_cmp() -> Unit {
   c_add()
   let k = tk(get_tp())
-  if k == 12 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 5, 36)  return () }
-  if k == 21 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 19, 40)  return () }
-  if k == 22 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 20, 41)  return () }
-  if k == 23 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 21, 37)  return () }
-  if k == 24 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 22, 39)  return () }
-  if k == 25 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 23, 38) }
+  let opoff = ta(get_tp())
+  let oplen = tb(get_tp())
+  if k == 12 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 5, 36, opoff, oplen)  return () }
+  if k == 21 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 19, 40, opoff, oplen)  return () }
+  if k == 22 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 20, 41, opoff, oplen)  return () }
+  if k == 23 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 21, 37, opoff, oplen)  return () }
+  if k == 24 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 22, 39, opoff, oplen)  return () }
+  if k == 25 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 23, 38, opoff, oplen) }
 }
 
 # Boolean operators, seed-identical shapes (loosest to tightest: or < and < not < cmp).
@@ -1944,10 +2001,18 @@ fn c_block() -> Unit {
     if tk(get_tp()) == 6 {
       loop = 0
     } else {
-      c_stmt()
+      if tk(get_tp()) == 14 {
+        loop = 0
+      } else {
+        c_stmt()
+      }
     }
   }
-  adv()
+  if tk(get_tp()) == 6 {
+    adv()
+  } else {
+    err_add(4, 0, 0)
+  }
 }
 
 fn c_type() -> Unit {
@@ -2115,7 +2180,11 @@ fn c_if() -> Unit {
     let jmp = get_emit()
     emitw(0)
     patch(jz, get_emit())
-    c_block()
+    if is_kw_if(get_tp()) == 1 {
+      c_if()
+    } else {
+      c_block()
+    }
     patch(jmp, get_emit())
   } else {
     patch(jz, get_emit())

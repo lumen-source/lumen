@@ -9,7 +9,23 @@
 #   load32(524292)        = main_entry
 #   load32(524296 + i*4)  = IR word i (store32 to rewrite)
 # Scratch (internal): orig 600000, target 700000, keep 800000, map 900000, out 1000000
-# (fixed 100KB slots; requires the seed's 100-page memory; counters stay at 589812/16/20).
+# (fixed 100KB slots; requires the seed's 100-page memory; counters live at
+# 1100000/1100004/1100008, immediately past the `out` slot's own 100KB ceiling).
+#
+# CAPACITY BUG FOUND 2026-07-15 (native/optimize_diff.mjs "optimize-the-compiler" regressed
+# 24/24 -> 23/24 once lumenc.lm crossed 16379 words): the counters used to live at
+# 589812/589816/589820, which is INSIDE this same hdr array's own address range, not past it
+# (hdr's word i sits at 524296 + i*4; that equals 589812 exactly at i=16379). Any IR at or
+# beyond 16379 words got its own word 16379 silently zeroed by the harness's counter-reset
+# writes (m32[589812/4]=0 etc. in pipeline.mjs), BEFORE this program ever ran - corrupting the
+# input in place rather than tripping the "orig_len > cap" fail-safe below, which only checked
+# a 24000-word ceiling that was never the real constraint. Moved the counters to genuinely
+# unused memory (1100000, right after `out`'s slot) and tightened the size cap to the real
+# physical ceiling: hdr's own array must stay clear of the `orig` scratch region that starts at
+# 600000 (524296 + i*4 < 600000 => i <= 18925), so the cap is 18900 words, comfortably above
+# lumenc.lm's 16623 and with margin to spare. See native/pipeline.mjs (counter addresses) and
+# native/lumopt_native.mjs (CNT_* constants) for the other two ABI copies that had to move in
+# lockstep.
 
 fn hdr() -> Int { return 524288 }
 fn ir_len() -> Int { return load32(hdr()) }
@@ -158,9 +174,9 @@ fn restore_orig(orig_len: Int, orig_main: Int) -> Unit {
   }
   store32(524288, orig_len)
   store32(524288 + 4, orig_main)
-  store32(589812, 0)
-  store32(589816, 0)
-  store32(589820, 0)
+  store32(1100000, 0)
+  store32(1100004, 0)
+  store32(1100008, 0)
 }
 
 fn kill_dead_function_span(start: Int, orig_len: Int) -> Int {
@@ -198,14 +214,16 @@ fn optimize_passes(c: Console) -> Int {
   let orig_len = ir_len()
   let orig_main = load32(524292)
 
-  # Size fail-safe: the 5 scratch regions live in fixed 100KB slots (orig 600000, target 700000,
-  # keep 800000, map 900000, out 1000000), so each holds up to 25000 words; 24000 leaves margin.
-  # The counter ABI at 589812/589816/589820 is untouched by this layout. restore_orig must NOT
-  # be called here: the backup region is not written yet; report zero changes, leave input as-is.
-  if orig_len > 24000 {
-    store32(589812, 0)
-    store32(589816, 0)
-    store32(589820, 0)
+  # Size fail-safe: the real ceiling is not the 5 scratch regions' own 100KB/25000-word slots
+  # but hdr's own array staying clear of the `orig` region that immediately follows it at
+  # 600000 (hdr word i lives at 524296 + i*4; i <= 18925 keeps it under 600000), so the cap is
+  # 18900, with margin. The counter ABI at 1100000/1100004/1100008 is untouched by this layout.
+  # restore_orig must NOT be called here: the backup region is not written yet; report zero
+  # changes, leave input as-is.
+  if orig_len > 18900 {
+    store32(1100000, 0)
+    store32(1100004, 0)
+    store32(1100008, 0)
     return 0
   }
 
@@ -528,9 +546,9 @@ fn optimize_passes(c: Console) -> Int {
   store32(hdr() + 4, new_main)
 
   # Write results to page 9 scratch registers
-  store32(589812, threaded_count)
-  store32(589816, folded_count)
-  store32(589820, threaded_count + folded_count + (orig_len - new_pc))
+  store32(1100000, threaded_count)
+  store32(1100004, folded_count)
+  store32(1100008, threaded_count + folded_count + (orig_len - new_pc))
   
   return 1
 }

@@ -4,8 +4,10 @@
 // (emitWith) to translate ITS OWN logic into C, exactly the self-application pattern
 // lumemit_native.mjs uses for the emitter itself. optimize.lm's memory contract (see its header
 // comment): hdr()=524288 holds [ir_len, main_entry, words...] (SCRATCH in pipeline.mjs), and the
-// pass counters live at fixed addresses 589812 (threaded) / 589816 (folded) / 589820 (changed),
-// zeroed before each run by pipeline.mjs's optimizeIR and read back after.
+// pass counters live at fixed addresses 1100000 (threaded) / 1100004 (folded) / 1100008
+// (changed), zeroed before each run by pipeline.mjs's optimizeIR and read back after. (Moved
+// 2026-07-15 from 589812/16/20, which sat INSIDE hdr's own IR-word array range and silently
+// corrupted word 16379 of any IR that grew that large -- see native/optimize.lm's header.)
 //
 // Driver: the emitted one-shot main is replaced with a driver that reads ONE 4-byte
 // little-endian length header, then that many bytes into LMEM[524288, 524288+n) (fully
@@ -21,7 +23,7 @@ import { compileToIR, emitWith, EMIT_FN_BASE, EMIT_FN_CEIL } from './pipeline.mj
 const OPT_SRC = fs.readFileSync(new URL('./optimize.lm', import.meta.url), 'utf8');
 const EMIT_FN_SRC = fs.readFileSync(new URL('./emit_fn.lm', import.meta.url), 'utf8');
 const HDR_BASE = 524288;   // matches pipeline.mjs's SCRATCH / optimize.lm's hdr()
-const CNT_THREADED = 589812, CNT_FOLDED = 589816, CNT_CHANGED = 589820;
+const CNT_THREADED = 1100000, CNT_FOLDED = 1100004, CNT_CHANGED = 1100008;
 
 // Stage the framed payload for the native driver: [len:i32][main:i32][words...].
 export function stagePayload(words, main) {

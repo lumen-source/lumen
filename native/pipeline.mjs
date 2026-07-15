@@ -303,16 +303,22 @@ export async function optimizeIR(words, main) {
   m32[SCRATCH / 4] = words.length;
   m32[SCRATCH / 4 + 1] = main;
   for (let i = 0; i < words.length; i++) m32[SCRATCH / 4 + 2 + i] = words[i];
-  m32[589812 / 4] = 0;
-  m32[589816 / 4] = 0;
-  m32[589820 / 4] = 0;
+  // Counter ABI lives at 1100000/1100004/1100008 (past optimize.lm's `out` scratch slot), NOT
+  // at 589812/589816/589820: that old address sat INSIDE the hdr array's own range (hdr word i
+  // is at 524296+i*4, which equals 589812 at i=16379), so any IR >= 16379 words got word 16379
+  // zeroed by these very reset writes before optimize.lm ran. See native/optimize.lm's header
+  // comment for the full writeup (found via native/optimize_diff.mjs regressing 24/24 -> 23/24
+  // once lumenc.lm crossed that threshold).
+  m32[1100000 / 4] = 0;
+  m32[1100004 / 4] = 0;
+  m32[1100008 / 4] = 0;
   if (I.ex.set_fuel_max) I.ex.set_fuel_max(4000000000n);
   I.ex.run(I.ex.dbg_main());
   const newLen = m32[SCRATCH / 4];
   const newMain = m32[SCRATCH / 4 + 1];
-  const changed = m32[589820 / 4];
-  const folded = m32[589816 / 4];
-  const threaded = m32[589812 / 4];
+  const changed = m32[1100008 / 4];
+  const folded = m32[1100004 / 4];
+  const threaded = m32[1100000 / 4];
   const out = new Int32Array(newLen);
   for (let i = 0; i < newLen; i++) out[i] = m32[SCRATCH / 4 + 2 + i];
   return { words: out, main: newMain, changed, folded, threaded };

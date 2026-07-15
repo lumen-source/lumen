@@ -36,15 +36,15 @@ export const LIT_HEAP_BYTES = LIT_HEAP_CEIL - LIT_HEAP_BASE;   // 36288
 // NOT 286000 (that is seed/compiler_core.mjs's DIAG_BASE, the WAT-NATIVE bootstrap compiler's
 // OWN internal diagnostic-record address for compiling arbitrary source directly). This driver
 // runs lumenc.lm SELF-HOSTED - a separate Lumen program interpreted/compiled atop that wat VM,
-// with its own memory layout. lumenc.lm's own err_add (seed/lumenc.lm:874-879) writes records
-// at 390000 + nerr*12 (D4: shifted +100000 from 290000, along with VARIANTS/PTYPES/LTYPES/
-// RETTYPES/FIELDS/RECTYPES/TOKENS/HEAP, to give CODE() room to hold the now-larger Dec-aware
-// lumenc.lm's own IR when it self-compiles -- see seed/lumenc.lm's header comment); the
-// ceiling is TOKENS() = 396000 (seed/lumenc.lm:16), the next region lumenc.lm's own memory
-// map documents. Verified empirically against seed/compiler_core.mjs's readRawDiags() output
-// for the same source (native/native_resident_test.mjs).
-const DIAG_BASE = 390000;
-const DIAG_CEIL = 396000;
+// with its own memory layout. lumenc.lm's own err_add (seed/lumenc.lm) writes records at
+// 297000 + nerr*12; the ceiling is TOKENS() = 299000 (seed/lumenc.lm), the next region
+// lumenc.lm's own memory map documents. (GAP-A fix, native/selfcompile_diff.mjs: DIAG/TOKENS
+// moved here from 390000/396000 to reclaim slack from CODE()'s over-provisioned reserve for
+// TOKENS' capacity -- see seed/lumenc.lm's header comment for the full accounting.) Verified
+// empirically against seed/compiler_core.mjs's readRawDiags() output for the same source
+// (native/native_resident_test.mjs).
+const DIAG_BASE = 297000;
+const DIAG_CEIL = 299000;
 const DIAG_RECORD_CAP = Math.floor((DIAG_CEIL - DIAG_BASE) / 12);   // 500 (code,name_off,name_len) triples
 
 const EMIT_FN_SRC = fs.readFileSync(new URL('./emit_fn.lm', import.meta.url), 'utf8');
