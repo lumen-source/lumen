@@ -81,7 +81,7 @@ result would need a **finer** grain than the fixed 1e-6 scale.** `+` and `-` are
 computes the exact product before scaling back down to 1e-6, rounding half-to-even at that
 last step; `dec_div(a, b)` computes the exact quotient at scale 1e-6, rounding half-to-even the
 same way. Half-even means an exact `.5` at the discarded digit rounds to whichever neighbor has
-an even last digit, not always up — this avoids the small systematic upward bias that
+an even last digit, not always up; this avoids the small systematic upward bias that
 round-half-up accumulates over many operations, which is why it is the default rounding mode
 in `decimal.Decimal` (Python) and most financial-decimal libraries.
 
@@ -89,7 +89,7 @@ in `decimal.Decimal` (Python) and most financial-decimal libraries.
 not return, does not wrap) if the true result cannot be represented:
 - `DADD`/`DSUB` (`+`/`-` on two `Dec`s): trap on signed 64-bit overflow of the underlying
   scaled integer, **and explicitly check for a result landing exactly on `INT64_MIN`**
-  (`-9223372036854775808`) even though that value would technically fit in 64 bits — this is
+  (`-9223372036854775808`) even though that value would technically fit in 64 bits; this is
   because `Dec`'s valid range excludes `INT64_MIN` (see below), and `__builtin_add_overflow`/
   `__builtin_sub_overflow` alone cannot see that boundary; both native lowerings (`emit_fn.lm`
   and `emit_llvm.lm`) add the explicit `==INT64_MIN` check on top of the hardware overflow flag
@@ -108,7 +108,7 @@ not return, does not wrap) if the true result cannot be represented:
   excludes it by construction (`9223372036854 * 1,000,000 = 9223372036854000000`, which is
   strictly greater in magnitude than `INT64_MIN`'s scaled equivalent could ever reach through
   this coercion path, since the coercion multiplies a bounded `Int` rather than landing on the
-  boundary integer directly) — the exclusion is implied by the divisibility of the bound, not
+  boundary integer directly); the exclusion is implied by the divisibility of the bound, not
   enforced by a second explicit comparison the way `DADD`/`DSUB` need one.
 
 **Formatting (`dec_to_text`).** Prints the canonical decimal form: fixed at up to six
