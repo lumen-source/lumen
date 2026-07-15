@@ -77,11 +77,19 @@ int main(void){
   return csrc.replace(m[0], driver);
 }
 
-// Build the native lumopt binary. Returns { bin }.
-export async function buildLumoptNative(opt = '-O2') {
+// Produce the self-contained C source of the native lumopt (optimizer) binary: optimize.lm
+// translated to C by emit_fn.lm, plus the length-framed stdin driver. `clang <this> -o lumopt0`
+// yields the native optimizer with zero wasm. The optimizer's R1-style reproducible genesis;
+// generating it runs the seed once (author time only). Gated by native/emitter_bootstrap_test.mjs.
+export async function emitLumoptBootstrapC() {
   const ir = await compileToIR(OPT_SRC);
   const csrc = await emitWith(EMIT_FN_SRC, ir.words, ir.main, ir.strings, EMIT_FN_BASE, EMIT_FN_CEIL);
-  const patched = patchMainToOptimizeDriver(csrc, HDR_BASE);
+  return patchMainToOptimizeDriver(csrc, HDR_BASE);
+}
+
+// Build the native lumopt binary. Returns { bin }.
+export async function buildLumoptNative(opt = '-O2') {
+  const patched = await emitLumoptBootstrapC();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumopt-native-'));
   const cfile = path.join(dir, 'lumopt.c'), bin = path.join(dir, 'lumopt');
   fs.writeFileSync(cfile, patched);
