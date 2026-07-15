@@ -190,6 +190,7 @@ regression; the Forge adds adversarial coverage. The full gate list run by `.git
 - `rawmem_diff.mjs`
 - `native_fn_test.mjs`
 - `native_float_test.mjs`
+- `native_decimal_test.mjs`
 - `llvm_diff.mjs`
 - `llvm_float_test.mjs`
 - `standalone_diff.mjs`
