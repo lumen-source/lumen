@@ -183,6 +183,62 @@ export function createInterpreter() {
   // pow(x, y) = exp(y * ln x). Port of $f_pow.
   function f_pow(x, y) { return f_exp(y * f_ln(x)); }
 
+  // Dec (D1, ported for the R5 rebase): exact decimal, i64 scaled by 1_000_000. $mul128 /
+  // $divmod128by64's 32-bit-limb decomposition in lumenc.wat exists ONLY because wasm i64 is a
+  // fixed 64-bit register; JS BigInt is arbitrary-precision, so the 128-bit intermediate product
+  // is just `a * b` directly - same exact result, none of the limb bookkeeping. Traps (throw,
+  // matching the DIV/MOD div-by-zero throws above) on overflow or divide-by-zero, mirroring
+  // $dec_mul/$dec_div's `unreachable` exactly.
+  const DEC_MAX = 9223372036854775807n;
+  const DFROMI_MAX = 9223372036854n, DFROMI_MIN = -9223372036854n;
+  function decRoundHalfEven(q, r, d) {
+    // r/d in [0,1); round q up if r*2 > d, or r*2 === d and q is currently odd (ties to even).
+    const r2 = r * 2n;
+    if (r2 > d) return q + 1n;
+    if (r2 === d && (q & 1n) !== 0n) return q + 1n;
+    return q;
+  }
+  function dec_mul(a, b) {
+    let neg = false;
+    if (a < 0n) { neg = !neg; a = -a; }
+    if (b < 0n) { neg = !neg; b = -b; }
+    const prod = a * b;
+    let q = decRoundHalfEven(prod / 1000000n, prod % 1000000n, 1000000n);
+    if (q > DEC_MAX) throw new Error('Dec overflow');
+    return neg ? -q : q;
+  }
+  function dec_div(a, b) {
+    if (b === 0n) throw new Error('Dec divide by zero');
+    let neg = false;
+    if (a < 0n) { neg = !neg; a = -a; }
+    if (b < 0n) { neg = !neg; b = -b; }
+    const prod = a * 1000000n;
+    let q = decRoundHalfEven(prod / b, prod % b, b);
+    if (q > DEC_MAX) throw new Error('Dec overflow');
+    return neg ? -q : q;
+  }
+  // Dec (D1): runtime Dec (i64, scale 1e-6) -> Text, canonical form. Trailing fractional zeros
+  // are trimmed but at least one fractional digit always remains ("3.0", not "3"). Port of
+  // $dec2text.
+  function dec2text(v) {
+    let neg = 0;
+    if (v < 0n) { neg = 1; v = -v; }
+    let ip = v / 1000000n, fp = v % 1000000n;
+    let nd = 1, tmp = ip;
+    while ((tmp = tmp / 10n) !== 0n) nd++;
+    let flen = 6, probe = fp;
+    while (flen > 1 && probe % 10n === 0n) { probe = probe / 10n; flen--; }
+    const len = neg + nd + 1 + flen;
+    const ptr = halloc(4 + len);
+    dv.setInt32(ptr, len, true);
+    let w = ptr + 4 + len;
+    for (let i = 0; i < flen; i++) { w -= 1; dv.setUint8(w, 48 + Number(probe % 10n)); probe = probe / 10n; }
+    w -= 1; dv.setUint8(w, 46);   // '.'
+    for (let i = 0; i < nd; i++) { w -= 1; dv.setUint8(w, 48 + Number(ip % 10n)); ip = ip / 10n; }
+    if (neg) dv.setUint8(ptr + 4, 45);
+    return ptr;
+  }
+
   // The interpreter loop itself: a faithful, opcode-for-opcode port of $run. SAFETY properties
   // preserved exactly: a fuel cap guarantees termination (loop breaks, not throws); a heap-bound
   // check on MKSUM/ANEW also just halts (not throws); div-by-zero and the INT64_MIN/-1 overflow
@@ -375,6 +431,28 @@ export function createInterpreter() {
         case 61: { const n = opop(), a = opop(); opush(wrapS64(asU64(a) << (n & 63n))); break; }      // SHL
         case 62: { const n = opop(), a = opop(); opush(wrapS64(asU64(a) >> (n & 63n))); break; }      // SHR (logical/unsigned)
         case 63: { opush(wrapS64(~opop())); break; }                                     // BNOT
+        // ---- Dec (D1, ported for R5): exact decimal, i64 scaled by 1_000_000. Overflow/
+        // div-by-zero throw, mirroring the Int DIV/MOD traps above (see the dec_mul/dec_div
+        // helpers' header comment) ----
+        case 64: { opush((BigInt(codew(pc) >>> 0)) | (BigInt(codew(pc + 1) >>> 0) << 32n)); pc += 2; break; } // DPUSH lo hi
+        case 65: {                                                                       // DFROMI: TOS Int -> Dec (*1e6), overflow throws
+          const a = opop();
+          if (a > DFROMI_MAX || a < DFROMI_MIN) throw new Error('Dec overflow');
+          opush(wrapS64(a * 1000000n)); break;
+        }
+        case 66: {                                                                       // DADD: exact i64 add, overflow/i64::MIN throws
+          const b = opop(), a = opop(), t = a + b;
+          if (t > DEC_MAX || t < -DEC_MAX) throw new Error('Dec overflow');
+          opush(t); break;
+        }
+        case 67: {                                                                       // DSUB (a - b): exact i64 sub, overflow/i64::MIN throws
+          const b = opop(), a = opop(), t = a - b;
+          if (t > DEC_MAX || t < -DEC_MAX) throw new Error('Dec overflow');
+          opush(t); break;
+        }
+        case 68: { const b = opop(), a = opop(); opush(dec_mul(a, b)); break; }          // DMUL
+        case 69: { const b = opop(), a = opop(); opush(dec_div(a, b)); break; }          // DDIV
+        case 70: { opush(BigInt(dec2text(opop())) & 0xFFFFFFFFn); break; }               // D2TEXT
         default: { lastSteps = BigInt(fuel); return; }   // unrecognized opcode: halt, same as $run's fallthrough
       }
     }

@@ -169,8 +169,8 @@ static void lm_resident_loop(void){
     int32_t ndiag=nerr;
     if(ndiag<0)ndiag=0;
     if(ndiag>${DIAG_RECORD_CAP})ndiag=${DIAG_RECORD_CAP};
-    // R5: symbol-table (lumenc.lm's SYMBOLS()=150000, count at load32(12)) and token-stream
-    // (TOKENS()=296000, count at load32(8)) trailers, appended after the diagnostics block, so
+    // R5: symbol-table (lumenc.lm's SYMBOLS()=170000, count at load32(12)) and token-stream
+    // (TOKENS()=396000, count at load32(8)) trailers, appended after the diagnostics block, so
     // the MCP introspection tools (lumen_symbols/lumen_tokens/lumen_profile) can retire their
     // wasm-instance memory peek without losing any capability - lumenc.lm tracks both at the
     // SAME addresses the wasm seed does (see seed/lumenc.lm's own header comment), so this is a
@@ -199,9 +199,9 @@ static void lm_resident_loop(void){
     fwrite(h4,1,4,stdout);
     if(ndiag>0)fwrite(LMEM+${DIAG_BASE},1,(size_t)ndiag*12,stdout);
     fwrite(h5,1,4,stdout);
-    if(ntok>0)fwrite(LMEM+296000,1,(size_t)ntok*12,stdout);
+    if(ntok>0)fwrite(LMEM+396000,1,(size_t)ntok*12,stdout);
     fwrite(h6,1,4,stdout);
-    if(nsym>0)fwrite(LMEM+150000,1,(size_t)nsym*12,stdout);
+    if(nsym>0)fwrite(LMEM+170000,1,(size_t)nsym*12,stdout);
     fflush(stdout);
     lm_compile_reset();
   }
@@ -242,7 +242,7 @@ int main(int argc,char**argv){
   fwrite(h3,1,4,stdout);
   fwrite(LMEM+${LIT_HEAP_BASE},1,${LIT_HEAP_BYTES},stdout);
   // R5: diagnostic-record trailer, matching the resident loop's [ndiag][diag] block exactly
-  // (same lumenc.lm err_add region, DIAG_BASE=290000 - see the constant's header comment above).
+  // (same lumenc.lm err_add region, DIAG_BASE=390000 - see the constant's header comment above).
   // The one-shot driver previously omitted this entirely; seed/compiler_core.mjs's compile()
   // needs it for rawDiags (E0001..E0004 codes, byte offsets, names), the same as checkNativeResident.
   int32_t ndiag=nerr;
@@ -262,9 +262,9 @@ int main(int argc,char**argv){
   unsigned char h5[4]={(unsigned char)ntok,(unsigned char)(ntok>>8),(unsigned char)(ntok>>16),(unsigned char)(ntok>>24)};
   unsigned char h6[4]={(unsigned char)nsym,(unsigned char)(nsym>>8),(unsigned char)(nsym>>16),(unsigned char)(nsym>>24)};
   fwrite(h5,1,4,stdout);
-  if(ntok>0)fwrite(LMEM+296000,1,(size_t)ntok*12,stdout);
+  if(ntok>0)fwrite(LMEM+396000,1,(size_t)ntok*12,stdout);
   fwrite(h6,1,4,stdout);
-  if(nsym>0)fwrite(LMEM+150000,1,(size_t)nsym*12,stdout);
+  if(nsym>0)fwrite(LMEM+170000,1,(size_t)nsym*12,stdout);
   return 0;
 }`;
   return csrc.replace(m[0], driver);

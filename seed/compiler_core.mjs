@@ -73,6 +73,19 @@ export function oplen(op) {
 // though nothing inside actually awaits anymore; compile/run/ir are fully synchronous).
 export async function createCompiler() {
   const assembleStart = process.hrtime.bigint();
+
+  // `exports`: a compatibility surface for callers that used to poke the wasm instance directly.
+  // `mem.buffer` is the JS interpreter's own memory (native/ir_interpreter.mjs), using the SAME
+  // address map (CODE_BASE, heap [488000,524288)) as the retired wasm instance - populated by
+  // compile() below on every call (one shared interpreter instance per createCompiler(),
+  // matching the old one-wasm-instance-per-compiler model). Compiler-internal state that only
+  // exists inside the native compiler's OWN (separate) process - SYMBOLS [170000,177000) and
+  // TOKENS [396000,...) - is NOT mirrored here; callers that need those read compile()'s own
+  // `tokens`/`symbols` fields instead (seed/lumen_mcp.mjs's symbolsFromSource/tokensFromSource
+  // do exactly this - see that file). Declared BEFORE compile() (not just before the return
+  // statement) because the assemble-warm call below invokes compile() eagerly.
+  const sharedInterp = createInterpreter();
+
   // No assemble step anymore (there is no WAT to parse), but keep `assembleMs` meaningful: it is
   // now the fixed cost of getting the resident bridge (worker thread + resident child) started -
   // or, if that fails, the one-shot binary cached via getNativeCompilerBin() - paid HERE, not on
@@ -97,6 +110,13 @@ export async function createCompiler() {
       try { r = compileToIRNativeRaw(source); }
       catch (e) { return { ok: false, irWords: 0, main: 0, srclen, rawDiags: [], crash: String(e.message || e) }; }
     }
+    // Mirror the compiled CODE into the shared interpreter's memory so `exports.mem.buffer`
+    // reflects THIS compile (matching the exportsShim doc comment above, and the retired wasm
+    // instance's own behavior where memory was always live after any compile() call) - fixes a
+    // real bug where callers reading lumen.exports.mem.buffer straight after compile() (never
+    // calling run()) saw a permanently-empty buffer (seed/effects.mjs's effectsFromSource,
+    // tools/effects_gate.mjs's purity ratchet).
+    if (r.rawDiags.length === 0) sharedInterp.writeCode(r.words);
     return { ok: r.rawDiags.length === 0, irWords: r.words.length, main: r.main, srclen, rawDiags: r.rawDiags,
       tokens: r.tokens, symbols: r.symbols, words: r.words, strings: r.strings };
   }
@@ -147,16 +167,7 @@ export async function createCompiler() {
     return { ...c, text: lines.join('\n') };
   }
 
-  // `exports`: a compatibility surface for callers that used to poke the wasm instance directly.
-  // `mem.buffer` is the JS interpreter's own memory (native/ir_interpreter.mjs), using the SAME
-  // address map (CODE_BASE, heap [488000,524288)) as the retired wasm instance - populated by
-  // the MOST RECENT run()/ir() call on this compiler (there is one shared interpreter instance
-  // per createCompiler(), matching the old one-wasm-instance-per-compiler model). Compiler-
-  // internal state that only exists inside the native compiler's OWN (separate) process -
-  // SYMBOLS [150000,157000) and TOKENS [296000,...) - is NOT mirrored here; callers that need
-  // those read compile()'s own `tokens`/`symbols` fields instead (seed/lumen_mcp.mjs's
-  // symbolsFromSource/tokensFromSource do exactly this - see that file).
-  const sharedInterp = createInterpreter();
+  // exportsShim wraps the sharedInterp declared above compile() (see that comment for why).
   const exportsShim = {
     get mem() { return { buffer: sharedInterp.mem }; },
     set_fuel_max: (v) => sharedInterp.set_fuel_max(v),
