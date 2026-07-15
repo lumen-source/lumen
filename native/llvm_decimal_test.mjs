@@ -2,14 +2,18 @@
 // ops 64-70 (DPUSH/DFROMI/DADD/DSUB/DMUL/DDIV/D2TEXT) -> clang(.ll + runtime_llvm.c) -> exe.
 // Same byte-for-byte, no-tolerance comparison approach as llvm_diff.mjs/llvm_float_test.mjs.
 //
-// Optimizer bypass (deliberate, not an oversight): native/optimize.lm's own oplen/is_known_op
-// tables only recognize ops 0-63 (D1 landed 64-70 strictly additively and optimize.lm is D2's
-// territory, not touched here). Feeding a Dec-bearing program through optimizeIR would misparse
-// DPUSH's 2-word immediate and desync the whole pass. buildAndRunLlvm() in pipeline.mjs always
-// calls optimizeIR, so this gate cannot use it for Dec programs; it instead drives emitLlvm()
-// directly (compileToIR -> emit_llvm.lm, exported and already optimizer-free - the exact
-// "optimizer OFF" path) and does its own build+run tail, mirroring buildAndRunLlvm's tail
-// byte-for-byte. Every non-Dec gate in this repo is unaffected: this file is additive.
+// Optimizer bypass (deliberate, not an oversight): D2 (#72) taught native/optimize.lm's
+// oplen/oplen_out the 2-word DPUSH shape, so pass_a's own walk no longer desyncs on a Dec
+// literal, but its is_known_op still caps at 63 (unchanged, and out of scope for this lane -
+// optimize.lm is D2's territory), so every Dec op still takes the existing fail-safe bail-out
+// and comes out unoptimized rather than corrupted. optimizeIR() is therefore SAFE on a
+// Dec-bearing program today, just a no-op for it - this gate still bypasses it anyway (rather
+// than relying on that bail-out) to keep the surface this test exercises minimal and to stay
+// decoupled from a pass this lane doesn't own. buildAndRunLlvm() in pipeline.mjs always calls
+// optimizeIR; this gate instead drives emitLlvm() directly (compileToIR -> emit_llvm.lm,
+// exported and already optimizer-free) and does its own build+run tail, mirroring
+// buildAndRunLlvm's tail byte-for-byte. Every non-Dec gate in this repo is unaffected: this
+// file is additive.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

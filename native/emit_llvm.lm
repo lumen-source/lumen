@@ -23,6 +23,7 @@ fn oplen(op: Int) -> Int {
   if op == 15 { return 1 }
   if op == 25 { return 1 }
   if op == 29 { return 2 }
+  if op == 64 { return 2 }
   return 0
 }
 
@@ -298,6 +299,15 @@ fn oplen_d_change(op: Int, pc: Int, d: Int) -> Int {
   if op == 61 { return d - 1 }
   if op == 62 { return d - 1 }
   if op == 63 { return d }
+  # ---- Dec (D3): mirrors the interpreter's own pop/push shape for ops 64-70 (see the
+  # "---- Dec (D3) ----" banner in emit_op below) ----
+  if op == 64 { return d + 1 }
+  if op == 65 { return d }
+  if op == 66 { return d - 1 }
+  if op == 67 { return d - 1 }
+  if op == 68 { return d - 1 }
+  if op == 69 { return d - 1 }
+  if op == 70 { return d }
   return d
 }
 
@@ -995,6 +1005,132 @@ fn emit_op(c: Console, pc: Int, d: Int, func_pc: Int) -> Int {
     c.print("  br label %L") num(c, resolved_next_pc) c.print("\n")
     return d
   }
+  # ---- Dec (D3): exact decimal, i64 scaled by 1_000_000. Lowers seed/lumenc.wat's ops 64-70
+  # (the interpreter is the oracle; see its own "---- Dec (D1) ----" banner) to LLVM IR. DADD/
+  # DSUB use llvm.s{add,sub}.with.overflow.i64 (the overflow bit is exactly the WAT's own
+  # sign-of-xor overflow check) plus an explicit i64::MIN exclusion, matching $dec_mul/$dec_div's
+  # "range excludes i64::MIN" invariant. DMUL/DDIV/D2TEXT call into runtime_llvm.c helpers
+  # (lm_dec_mul/lm_dec_div/lm_dec2text): the exact 128-bit product/quotient + round-half-even is
+  # simpler and more auditable via the target's native __int128 than hand-rolled 32-bit-limb IR,
+  # and the C helpers themselves trap (fflush+abort) on overflow/div-by-zero, matching the trap
+  # idiom below byte-for-byte in effect. ----
+  if op == 64 {
+    # DPUSH lo hi: push a Dec i64 literal (two 32-bit halves, like FPUSH/op29, but stored as a
+    # plain i64 - no float reinterpret needed, mirroring $emit_dpush's own comment).
+    let lo = ir_word(pc + 1)
+    let hi = ir_word(pc + 2)
+    let rlo = get_reg()
+    let rhi = get_reg()
+    let rshift = get_reg()
+    let ror = get_reg()
+    c.print("  %r") num(c, rlo) c.print(" = zext i32 ") num(c, lo) c.print(" to i64\n")
+    c.print("  %r") num(c, rhi) c.print(" = zext i32 ") num(c, hi) c.print(" to i64\n")
+    c.print("  %r") num(c, rshift) c.print(" = shl i64 %r") num(c, rhi) c.print(", 32\n")
+    c.print("  %r") num(c, ror) c.print(" = or i64 %r") num(c, rlo) c.print(", %r") num(c, rshift) c.print("\n")
+    st_int(c, d, ror)
+    c.print("  br label %L") num(c, resolved_next_pc) c.print("\n")
+    return d + 1
+  }
+  if op == 65 {
+    # DFROMI: TOS Int -> Dec (i64 * 1_000_000), in place. Trap bound is the WAT's own literal
+    # 9223372036854 / -9223372036854 (floor(INT64_MAX/1e6) / ceil(INT64_MIN/1e6)), copied
+    # verbatim rather than re-derived from a multiply-overflow intrinsic, for bit-exact parity.
+    let a = ld_as_int(c, d - 1)
+    let rgt = get_reg()
+    let rlt = get_reg()
+    let rtrap = get_reg()
+    c.print("  %r") num(c, rgt) c.print(" = icmp sgt i64 %r") num(c, a) c.print(", 9223372036854\n")
+    c.print("  %r") num(c, rlt) c.print(" = icmp slt i64 %r") num(c, a) c.print(", -9223372036854\n")
+    c.print("  %r") num(c, rtrap) c.print(" = or i1 %r") num(c, rgt) c.print(", %r") num(c, rlt) c.print("\n")
+    c.print("  br i1 %r") num(c, rtrap) c.print(", label %L") num(c, pc) c.print("_trap, label %L") num(c, pc) c.print("_safe\n")
+    c.print("L") num(c, pc) c.print("_trap:\n")
+    c.print("  %unused_fflush_") num(c, pc) c.print(" = call i32 @fflush(ptr null)\n")
+    c.print("  call void @abort()\n")
+    c.print("  unreachable\n")
+    c.print("L") num(c, pc) c.print("_safe:\n")
+    let r = get_reg()
+    c.print("  %r") num(c, r) c.print(" = mul i64 %r") num(c, a) c.print(", 1000000\n")
+    st_int(c, d - 1, r)
+    c.print("  br label %L") num(c, resolved_next_pc) c.print("\n")
+    return d
+  }
+  if op == 66 {
+    # DADD (a + b): exact i64 add, overflow (or landing on the excluded i64::MIN) traps.
+    let a = ld_as_int(c, d - 2)
+    let b = ld_as_int(c, d - 1)
+    let rpair = get_reg()
+    let rsum = get_reg()
+    let rovf = get_reg()
+    let rmin = get_reg()
+    let rtrap = get_reg()
+    c.print("  %r") num(c, rpair) c.print(" = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %r") num(c, a) c.print(", i64 %r") num(c, b) c.print(")\n")
+    c.print("  %r") num(c, rsum) c.print(" = extractvalue { i64, i1 } %r") num(c, rpair) c.print(", 0\n")
+    c.print("  %r") num(c, rovf) c.print(" = extractvalue { i64, i1 } %r") num(c, rpair) c.print(", 1\n")
+    c.print("  %r") num(c, rmin) c.print(" = icmp eq i64 %r") num(c, rsum) c.print(", -9223372036854775808\n")
+    c.print("  %r") num(c, rtrap) c.print(" = or i1 %r") num(c, rovf) c.print(", %r") num(c, rmin) c.print("\n")
+    c.print("  br i1 %r") num(c, rtrap) c.print(", label %L") num(c, pc) c.print("_trap, label %L") num(c, pc) c.print("_safe\n")
+    c.print("L") num(c, pc) c.print("_trap:\n")
+    c.print("  %unused_fflush_") num(c, pc) c.print(" = call i32 @fflush(ptr null)\n")
+    c.print("  call void @abort()\n")
+    c.print("  unreachable\n")
+    c.print("L") num(c, pc) c.print("_safe:\n")
+    st_int(c, d - 2, rsum)
+    c.print("  br label %L") num(c, resolved_next_pc) c.print("\n")
+    return d - 1
+  }
+  if op == 67 {
+    # DSUB (a - b): exact i64 sub, overflow (or i64::MIN) traps.
+    let a = ld_as_int(c, d - 2)
+    let b = ld_as_int(c, d - 1)
+    let rpair = get_reg()
+    let rsum = get_reg()
+    let rovf = get_reg()
+    let rmin = get_reg()
+    let rtrap = get_reg()
+    c.print("  %r") num(c, rpair) c.print(" = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %r") num(c, a) c.print(", i64 %r") num(c, b) c.print(")\n")
+    c.print("  %r") num(c, rsum) c.print(" = extractvalue { i64, i1 } %r") num(c, rpair) c.print(", 0\n")
+    c.print("  %r") num(c, rovf) c.print(" = extractvalue { i64, i1 } %r") num(c, rpair) c.print(", 1\n")
+    c.print("  %r") num(c, rmin) c.print(" = icmp eq i64 %r") num(c, rsum) c.print(", -9223372036854775808\n")
+    c.print("  %r") num(c, rtrap) c.print(" = or i1 %r") num(c, rovf) c.print(", %r") num(c, rmin) c.print("\n")
+    c.print("  br i1 %r") num(c, rtrap) c.print(", label %L") num(c, pc) c.print("_trap, label %L") num(c, pc) c.print("_safe\n")
+    c.print("L") num(c, pc) c.print("_trap:\n")
+    c.print("  %unused_fflush_") num(c, pc) c.print(" = call i32 @fflush(ptr null)\n")
+    c.print("  call void @abort()\n")
+    c.print("  unreachable\n")
+    c.print("L") num(c, pc) c.print("_safe:\n")
+    st_int(c, d - 2, rsum)
+    c.print("  br label %L") num(c, resolved_next_pc) c.print("\n")
+    return d - 1
+  }
+  if op == 68 {
+    # DMUL: Dec*Dec, exact 128-bit product, round-half-even /1e6, overflow traps (in the helper).
+    let a = ld_as_int(c, d - 2)
+    let b = ld_as_int(c, d - 1)
+    let r = get_reg()
+    c.print("  %r") num(c, r) c.print(" = call i64 @lm_dec_mul(i64 %r") num(c, a) c.print(", i64 %r") num(c, b) c.print(")\n")
+    st_int(c, d - 2, r)
+    c.print("  br label %L") num(c, resolved_next_pc) c.print("\n")
+    return d - 1
+  }
+  if op == 69 {
+    # DDIV: dec_div(a,b) = round_half_even(a*1e6/b); b==0 or overflow traps (in the helper).
+    let a = ld_as_int(c, d - 2)
+    let b = ld_as_int(c, d - 1)
+    let r = get_reg()
+    c.print("  %r") num(c, r) c.print(" = call i64 @lm_dec_div(i64 %r") num(c, a) c.print(", i64 %r") num(c, b) c.print(")\n")
+    st_int(c, d - 2, r)
+    c.print("  br label %L") num(c, resolved_next_pc) c.print("\n")
+    return d - 1
+  }
+  if op == 70 {
+    # D2TEXT: pop Dec -> push Text ptr (canonical form), in place. Never traps.
+    let a = ld_as_int(c, d - 1)
+    let r = get_reg()
+    c.print("  %r") num(c, r) c.print(" = call i64 @lm_dec2text(i64 %r") num(c, a) c.print(")\n")
+    st_int(c, d - 1, r)
+    c.print("  br label %L") num(c, resolved_next_pc) c.print("\n")
+    return d
+  }
 
   c.print("  br label %L") num(c, resolved_next_pc) c.print("\n")
   return d
@@ -1122,11 +1258,19 @@ fn main(c: Console) -> Unit {
   c.print("declare void @lm_aset(i64, i64, i64)\n")
   c.print("declare i64 @lm_alen(i64)\n")
 
+  # Dec (D3): runtime helpers (native/runtime_llvm.c) for DMUL(68)/DDIV(69)/D2TEXT(70).
+  c.print("declare i64 @lm_dec_mul(i64, i64)\n")
+  c.print("declare i64 @lm_dec_div(i64, i64)\n")
+  c.print("declare i64 @lm_dec2text(i64)\n")
+
   c.print("declare i64 @llvm.fptosi.sat.i64.f64(double)\n")
   c.print("declare double @llvm.roundeven.f64(double)\n")
   c.print("declare double @llvm.floor.f64(double)\n")
   c.print("declare double @llvm.sqrt.f64(double)\n")
   c.print("declare double @llvm.fabs.f64(double)\n")
+  # Dec (D3): overflow-checked add/sub for DADD(66)/DSUB(67).
+  c.print("declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)\n")
+  c.print("declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)\n")
   emit_f_exp(c)
   emit_f_ln(c)
   emit_f_pow(c)
