@@ -10,7 +10,7 @@ import { createCompiler } from '../../seed/compiler_core.mjs';
 import { listTaskIds, loadTask, runTask, jsonlText } from './runner.mjs';
 import { makeScriptedAuthor, EXPECTED_ROUNDS } from './scripted_author.mjs';
 
-const REQUIRED_KEYS = ['task', 'round', 'chars_in', 'chars_out', 'diag_codes', 'green'];
+const REQUIRED_KEYS = ['task', 'round', 'chars_in', 'chars_out', 'diag_codes', 'green_compile', 'green_solved'];
 
 function assert(cond, msg) {
   if (!cond) throw new Error('SELFTEST FAILED: ' + msg);
@@ -53,8 +53,21 @@ async function main() {
     // every round before the last must show at least one diagnostic (the whole point of the
     // scripted broken attempts is to exercise the feedback loop, not skip it)
     for (const line of result.jsonl) {
-      if (!line.green && line.diag_codes.length === 0) {
+      if (!line.green_compile && line.diag_codes.length === 0) {
         console.error(`[${id}] round ${line.round} was non-green with zero diagnostics (broken-attempt design flaw)`);
+        failures++;
+      }
+      // green_solved can only be true on a line that also compiled green (solved implies compiled)
+      if (line.green_solved && !line.green_compile) {
+        console.error(`[${id}] round ${line.round} has green_solved=true but green_compile=false (impossible)`);
+        failures++;
+      }
+    }
+    // the round that went green must show green_solved matching the task's hidden-test outcome
+    if (result.green) {
+      const greenLine = result.jsonl.find(l => l.round === result.rounds);
+      if (!greenLine || greenLine.green_solved !== result.hiddenGreen) {
+        console.error(`[${id}] green_solved on the green round (${greenLine && greenLine.green_solved}) does not match hiddenGreen (${result.hiddenGreen})`);
         failures++;
       }
     }
@@ -92,7 +105,8 @@ async function main() {
     if (typeof obj.round !== 'number' || obj.round < 1) { console.error(`jsonl line ${i} bad round: ${line}`); failures++; }
     if (typeof obj.chars_in !== 'number' || typeof obj.chars_out !== 'number') { console.error(`jsonl line ${i} bad char counts: ${line}`); failures++; }
     if (!Array.isArray(obj.diag_codes)) { console.error(`jsonl line ${i} diag_codes not an array: ${line}`); failures++; }
-    if (typeof obj.green !== 'boolean') { console.error(`jsonl line ${i} green not boolean: ${line}`); failures++; }
+    if (typeof obj.green_compile !== 'boolean') { console.error(`jsonl line ${i} green_compile not boolean: ${line}`); failures++; }
+    if (typeof obj.green_solved !== 'boolean') { console.error(`jsonl line ${i} green_solved not boolean: ${line}`); failures++; }
   }
 
   console.log('measured rounds-to-green:', JSON.stringify(measuredRounds));
