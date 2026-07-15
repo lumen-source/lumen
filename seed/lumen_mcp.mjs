@@ -3,7 +3,8 @@
 // Lumen compiler to any MCP-capable model, local or cloud. It embeds compiler_core directly,
 // so the compiler is assembled once and every tool call is a hot, sub-millisecond compile.
 // Zero new dependencies: the MCP framing is hand-rolled (newline-delimited JSON-RPC), keeping
-// the toolchain self-contained on top of the existing `wabt` bootstrap assembler.
+// the toolchain self-contained on top of the native compiler + in-process interpreter (R5;
+// WebAssembly/wabt retired - see native/lumenc.bootstrap.c and native/ir_interpreter.mjs).
 //
 // Tools: lumen_check, lumen_fix, lumen_run, lumen_ir, lumen_explain, lumen_batch, lumen_profile,
 // lumen_symbols, and the full-compiler-access set lumen_tokens, lumen_types, lumen_optimize,
