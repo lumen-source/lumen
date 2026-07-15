@@ -198,6 +198,7 @@ regression; the Forge adds adversarial coverage. The full gate list run by `.git
 - `native_compile_test.mjs`
 - `native_pipeline_test.mjs`
 - `native_fixpoint_test.mjs`
+- `bootstrap_test.mjs`
 - `arm64_spike_check.mjs`
 - `state_eventlog_test.mjs`
 - `analytics_events_test.mjs`
