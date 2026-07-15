@@ -71,7 +71,11 @@ export async function compileToIR(src) {
       let oplen = 0;
       if (op === 1 || op === 2 || op === 6 || op === 7 || op === 13 || op === 14 || op === 15 || op === 25) {
         oplen = 1;
-      } else if (op === 8 || op === 29) {
+      } else if (op === 8 || op === 29 || op === 64) {
+        // Dec (D2): DPUSH (op 64) encodes an i64 literal as two 32-bit halves, exactly like
+        // FPUSH (op 29). Without this, its second operand word would be misread as a fresh
+        // opcode, misaligning this walk (used to find every MKTEXT string pointer) for any
+        // program mixing Dec literals with Text literals.
         oplen = 2;
       }
       pc = pc + 1 + oplen;
@@ -103,7 +107,7 @@ export function validateNativeIR(words, main) {
     if (op === 57) { pc = pc + 3 + words[pc + 1]; continue; }
     let oplen = 0;
     if (op === 1 || op === 2 || op === 6 || op === 7 || op === 13 || op === 14 || op === 15 || op === 25) oplen = 1;
-    else if (op === 8 || op === 29) oplen = 2;
+    else if (op === 8 || op === 29 || op === 64) oplen = 2;   // Dec (D2): DPUSH is 2-operand, like FPUSH
     pc = pc + 1 + oplen;
   }
   if (pc !== words.length) return `opcode walk ended at pc=${pc}, expected ${words.length}`;
@@ -240,7 +244,11 @@ export async function buildAndRunFn(src, opt = '-O2') {
       let oplen = 0;
       if (op === 1 || op === 2 || op === 6 || op === 7 || op === 13 || op === 14 || op === 15 || op === 25) {
         oplen = 1;
-      } else if (op === 8 || op === 29) {
+      } else if (op === 8 || op === 29 || op === 64) {
+        // Dec (D2): DPUSH (op 64) encodes an i64 literal as two 32-bit halves, exactly like
+        // FPUSH (op 29). Without this, its second operand word would be misread as a fresh
+        // opcode, misaligning this walk (used to find every MKTEXT string pointer) for any
+        // program mixing Dec literals with Text literals.
         oplen = 2;
       }
       pc = pc + 1 + oplen;

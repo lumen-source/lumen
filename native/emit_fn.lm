@@ -40,6 +40,7 @@ fn oplen(op: Int) -> Int {
   if op == 15 { return 1 }
   if op == 25 { return 1 }
   if op == 29 { return 2 }
+  if op == 64 { return 2 }
   return 0
 }
 
@@ -72,6 +73,17 @@ fn type_of_slot(func_pc: Int, slot: Int) -> Int {
 fn num(c: Console, n: Int) -> Unit { c.print(int_to_text(n)) }
 fn get_sty(k: Int) -> Int { return load8(2400000 + k) }
 fn set_sty(k: Int, t: Int) -> Unit { store8(2400000 + k, t) }
+# Dec (D2): sl_int/sl_double/slot_int/slot_double below only ever distinguish sty==1
+# (Float, needs the "sd<k>" double C variable + l2d/d2l bit-reinterpret) from "not 1"
+# (read/write the plain "s<k>" int64_t C variable directly) -- there is no third branch.
+# Dec's C representation IS the plain int64_t "s<k>" variable, identical to Int's (that is
+# the whole point: Dec never needed a reinterpret helper the way Float's bit-pattern-in-an-
+# i64-slot trick does). So wherever a RAW type_of_slot()/rettype_of() value (0=Int,
+# 1=Float, 2=Dec) is about to become a STACK-DEPTH sty tag via set_sty, it must first be
+# normalized: 2 collapses to 0. Without this, a Dec-typed GETARG or CALL-return would tag
+# its stack slot sty=2, and sl_int (which checks `t == 0` specifically, not `t != 1`) would
+# then read the WRONG C variable (d2l(sd<k>) instead of s<k>) for that slot's value.
+fn norm_sty(t: Int) -> Int { if t == 2 { return 0 } return t }
 
 fn slot_int(c: Console, k: Int) -> Unit {
   if k < 0 { c.print("s0") }
@@ -200,6 +212,15 @@ fn oplen_d_change(op: Int, pc: Int, d: Int) -> Int {
   if op == 61 { res = d - 1 }
   if op == 62 { res = d - 1 }
   if op == 63 { res = d }
+  # Dec (D2): pop/push shape mirrors the equivalent Int/Float op exactly (DPUSH~PUSH/FPUSH,
+  # DFROMI~I2F, DADD/DSUB/DMUL/DDIV~ADD/FADD, D2TEXT~INT2TEXT).
+  if op == 64 { res = d + 1 }
+  if op == 65 { res = d }
+  if op == 66 { res = d - 1 }
+  if op == 67 { res = d - 1 }
+  if op == 68 { res = d - 1 }
+  if op == 69 { res = d - 1 }
+  if op == 70 { res = d }
   if res < 0 { return 0 }
   return res
 }
@@ -334,7 +355,7 @@ fn emit_op(c: Console, pc: Int, d: Int, func_pc: Int) -> Int {
   if op == 2 {
     let k = ir_word(pc + 1)
     let t = type_of_slot(func_pc, k)
-    set_sty(d, t)
+    set_sty(d, norm_sty(t))
     if t == 1 { slot_double(c, d) c.print("=F") num(c, k) c.print(";\n") }
     else { slot_int(c, d) c.print("=F") num(c, k) c.print(";\n") }
     return d + 1
@@ -392,7 +413,7 @@ fn emit_op(c: Console, pc: Int, d: Int, func_pc: Int) -> Int {
       j = j + 1
     }
     c.print(");\n")
-    set_sty(d - argc, ret_t)
+    set_sty(d - argc, norm_sty(ret_t))
     return d - argc + 1
   }
   if op == 29 {
@@ -534,6 +555,57 @@ fn emit_op(c: Console, pc: Int, d: Int, func_pc: Int) -> Int {
   }
   if op == 63 {
     slot_int(c, d - 1) c.print("=~") sl_int(c, d - 1) c.print(";\n")
+    set_sty(d - 1, 0)
+    return d
+  }
+  # ---- Dec (D2): exact decimal, i64 scale 1e-6. Same C representation as Int (plain
+  # int64_t "s<k>"), so every case below reads/writes via slot_int/sl_int exactly like the
+  # Int ops above, never sl_double. Overflow/div-by-zero traps use the interpreter's own
+  # idiom translated to native: fflush(stdout);abort() mirrors the existing DIV(op 12)/MOD
+  # (op 24) trap-on-zero code just above, so a truncated-stdout-then-crash looks the same
+  # native as it does under the interpreter's own div_s/rem_s trap. ----
+  if op == 64 {
+    # DPUSH lo hi: reconstruct the i64 from its two 32-bit halves, exactly like FPUSH (op
+    # 29) above, but push it as a plain int64_t (no l2d bit-reinterpret: Dec is not Float).
+    slot_int(c, d) c.print("=(int64_t)(((uint64_t)(uint32_t)") num(c, ir_word(pc + 1)) c.print(")|((uint64_t)(uint32_t)") num(c, ir_word(pc + 2)) c.print("<<32));\n")
+    set_sty(d, 0)
+    return d + 1
+  }
+  if op == 65 {
+    # DFROMI: TOS Int -> Dec (i64 * 1_000_000). __builtin_mul_overflow catches the same
+    # boundary as the interpreter's hand-computed bound (|a| <= 9223372036854): i64::MIN is
+    # not a multiple of 1_000_000, so it is never reachable as a "no overflow" result either
+    # way, and the builtin's standard int64_t range check is exactly equivalent here.
+    c.print("if(__builtin_mul_overflow(") sl_int(c, d - 1) c.print(",(int64_t)1000000,&") slot_int(c, d - 1) c.print(")){fflush(stdout);abort();}\n")
+    set_sty(d - 1, 0)
+    return d
+  }
+  if op == 66 {
+    # DADD: exact i64 add. __builtin_add_overflow catches true 2's-complement overflow;
+    # the extra ==INT64_MIN check catches the one case it cannot (e.g. -(2^63-1) + -1 does
+    # not wrap, but Dec's valid range deliberately excludes i64::MIN so every Dec value can
+    # always be safely negated -- same invariant the interpreter enforces).
+    c.print("if(__builtin_add_overflow(") sl_int(c, d - 2) c.print(",") sl_int(c, d - 1) c.print(",&") slot_int(c, d - 2) c.print(")||") slot_int(c, d - 2) c.print("==INT64_MIN){fflush(stdout);abort();}\n")
+    set_sty(d - 2, 0)
+    return d - 1
+  }
+  if op == 67 {
+    c.print("if(__builtin_sub_overflow(") sl_int(c, d - 2) c.print(",") sl_int(c, d - 1) c.print(",&") slot_int(c, d - 2) c.print(")||") slot_int(c, d - 2) c.print("==INT64_MIN){fflush(stdout);abort();}\n")
+    set_sty(d - 2, 0)
+    return d - 1
+  }
+  if op == 68 {
+    slot_int(c, d - 2) c.print("=lm_dec_mul(") sl_int(c, d - 2) c.print(",") sl_int(c, d - 1) c.print(");\n")
+    set_sty(d - 2, 0)
+    return d - 1
+  }
+  if op == 69 {
+    slot_int(c, d - 2) c.print("=lm_dec_div(") sl_int(c, d - 2) c.print(",") sl_int(c, d - 1) c.print(");\n")
+    set_sty(d - 2, 0)
+    return d - 1
+  }
+  if op == 70 {
+    slot_int(c, d - 1) c.print("=lm_dec2text(") sl_int(c, d - 1) c.print(");\n")
     set_sty(d - 1, 0)
     return d
   }
@@ -826,6 +898,63 @@ static int64_t lm_int2text(int64_t val_s) {
   if (neg) {
     *((char*)ptr + 4) = '-';
   }
+  return ptr;
+}
+static int64_t lm_dec_mul(int64_t a, int64_t b) {
+  int neg = 0;
+  __int128 sa = a, sb = b;
+  if (sa < 0) { neg ^= 1; sa = -sa; }
+  if (sb < 0) { neg ^= 1; sb = -sb; }
+  __int128 prod = sa * sb;
+  __int128 q = prod / 1000000;
+  __int128 r = prod % 1000000;
+  if (r * 2 > 1000000) { q += 1; }
+  else if (r * 2 == 1000000 && (q & 1)) { q += 1; }
+  if (q > (__int128)INT64_MAX) { fflush(stdout); abort(); }
+  int64_t result = (int64_t)q;
+  return neg ? -result : result;
+}
+static int64_t lm_dec_div(int64_t a, int64_t b) {
+  if (b == 0) { fflush(stdout); abort(); }
+  int neg = 0;
+  __int128 sa = a, sb = b;
+  if (sa < 0) { neg ^= 1; sa = -sa; }
+  if (sb < 0) { neg ^= 1; sb = -sb; }
+  __int128 num = sa * (__int128)1000000;
+  __int128 q = num / sb;
+  __int128 r = num % sb;
+  if (r * 2 > sb) { q += 1; }
+  else if (r * 2 == sb && (q & 1)) { q += 1; }
+  if (q > (__int128)INT64_MAX) { fflush(stdout); abort(); }
+  int64_t result = (int64_t)q;
+  return neg ? -result : result;
+}
+static int64_t lm_dec2text(int64_t v) {
+  int32_t neg = 0;
+  uint64_t uv;
+  if (v < 0) { neg = 1; uv = (uint64_t)(-(__int128)v); } else { uv = (uint64_t)v; }
+  uint64_t ip = uv / 1000000;
+  uint64_t fp = uv % 1000000;
+  int32_t nd = 1;
+  uint64_t tmp = ip;
+  while (1) { tmp = tmp / 10; if (tmp == 0) break; nd++; }
+  int32_t flen = 6;
+  uint64_t probe = fp;
+  while (flen > 1) { if (probe % 10 != 0) break; probe = probe / 10; flen--; }
+  int32_t len = neg + nd + 1 + flen;
+  int64_t ptr = lm_alloc_bytes(4 + len);
+  *(int32_t*)ptr = len;
+  char* w = (char*)ptr + 4 + len;
+  {
+    uint64_t fw = probe;
+    for (int32_t i = 0; i < flen; i++) { w--; *w = (char)(48 + (int)(fw % 10)); fw = fw / 10; }
+  }
+  w--; *w = '.';
+  {
+    uint64_t iw = ip;
+    for (int32_t i = 0; i < nd; i++) { w--; *w = (char)(48 + (int)(iw % 10)); iw = iw / 10; }
+  }
+  if (neg) { *((char*)ptr + 4) = '-'; }
   return ptr;
 }
 static int64_t lm_texteq(int64_t pa, int64_t pb) {

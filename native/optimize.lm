@@ -63,6 +63,14 @@ fn oplen(pc: Int, op: Int) -> Int {
   if op == 25 { return 1 }
   if op == 29 { return 2 }
   if op == 57 { return ir_word(pc + 1) + 2 }
+  # Dec (D2): DPUSH (op 64) is 2-operand like FPUSH. is_known_op still excludes 64-70 (an
+  # unmodified opcode is still "unknown" to the optimizer's transform passes, so a
+  # Dec-containing program still takes the existing fail-safe bail-out below, unchanged and
+  # unoptimized), but pass_a's jump-threading walk runs BEFORE that check and needs correct
+  # stepping regardless, so the IR it (harmlessly, since restore_orig reverts everything on
+  # bail-out) touches during that walk stays aligned rather than reading a DPUSH operand
+  # word as if it were a fresh opcode.
+  if op == 64 { return 2 }
   return 0
 }
 
@@ -78,6 +86,7 @@ fn oplen_out(pc: Int, op: Int) -> Int {
   if op == 25 { return 1 }
   if op == 29 { return 2 }
   if op == 57 { return get_out(pc + 1) + 2 }
+  if op == 64 { return 2 }
   return 0
 }
 

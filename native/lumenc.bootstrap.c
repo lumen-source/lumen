@@ -113,6 +113,63 @@ static int64_t lm_int2text(int64_t val_s) {
   }
   return ptr;
 }
+static int64_t lm_dec_mul(int64_t a, int64_t b) {
+  int neg = 0;
+  __int128 sa = a, sb = b;
+  if (sa < 0) { neg ^= 1; sa = -sa; }
+  if (sb < 0) { neg ^= 1; sb = -sb; }
+  __int128 prod = sa * sb;
+  __int128 q = prod / 1000000;
+  __int128 r = prod % 1000000;
+  if (r * 2 > 1000000) { q += 1; }
+  else if (r * 2 == 1000000 && (q & 1)) { q += 1; }
+  if (q > (__int128)INT64_MAX) { fflush(stdout); abort(); }
+  int64_t result = (int64_t)q;
+  return neg ? -result : result;
+}
+static int64_t lm_dec_div(int64_t a, int64_t b) {
+  if (b == 0) { fflush(stdout); abort(); }
+  int neg = 0;
+  __int128 sa = a, sb = b;
+  if (sa < 0) { neg ^= 1; sa = -sa; }
+  if (sb < 0) { neg ^= 1; sb = -sb; }
+  __int128 num = sa * (__int128)1000000;
+  __int128 q = num / sb;
+  __int128 r = num % sb;
+  if (r * 2 > sb) { q += 1; }
+  else if (r * 2 == sb && (q & 1)) { q += 1; }
+  if (q > (__int128)INT64_MAX) { fflush(stdout); abort(); }
+  int64_t result = (int64_t)q;
+  return neg ? -result : result;
+}
+static int64_t lm_dec2text(int64_t v) {
+  int32_t neg = 0;
+  uint64_t uv;
+  if (v < 0) { neg = 1; uv = (uint64_t)(-(__int128)v); } else { uv = (uint64_t)v; }
+  uint64_t ip = uv / 1000000;
+  uint64_t fp = uv % 1000000;
+  int32_t nd = 1;
+  uint64_t tmp = ip;
+  while (1) { tmp = tmp / 10; if (tmp == 0) break; nd++; }
+  int32_t flen = 6;
+  uint64_t probe = fp;
+  while (flen > 1) { if (probe % 10 != 0) break; probe = probe / 10; flen--; }
+  int32_t len = neg + nd + 1 + flen;
+  int64_t ptr = lm_alloc_bytes(4 + len);
+  *(int32_t*)ptr = len;
+  char* w = (char*)ptr + 4 + len;
+  {
+    uint64_t fw = probe;
+    for (int32_t i = 0; i < flen; i++) { w--; *w = (char)(48 + (int)(fw % 10)); fw = fw / 10; }
+  }
+  w--; *w = '.';
+  {
+    uint64_t iw = ip;
+    for (int32_t i = 0; i < nd; i++) { w--; *w = (char)(48 + (int)(iw % 10)); iw = iw / 10; }
+  }
+  if (neg) { *((char*)ptr + 4) = '-'; }
+  return ptr;
+}
 static int64_t lm_texteq(int64_t pa, int64_t pb) {
   if (pa == pb) return 1;
   if (!pa || !pb) return 0;
