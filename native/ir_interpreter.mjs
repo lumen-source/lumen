@@ -195,13 +195,29 @@ export function createInterpreter() {
   function pcRun(start) {
     let pc = start;
     osp = 0; csp = 0; argbase = 0;
-    let fuel = 0n;
+    // PERF: fuel is a per-opcode-dispatch counter, checked on EVERY single step regardless of
+    // what the opcode does - the hottest of hot paths. It is an internal safety bound only (never
+    // observable to the running program's output), so unlike the i64 operand-stack arithmetic
+    // below - which MUST use BigInt to reproduce wasm's exact 64-bit wraparound semantics - fuel
+    // itself has no such requirement. A plain Number counter is exact up to 2^53 (every fuelMax
+    // used in this repo, largest 4e9, is far below that), and V8's Number arithmetic is roughly
+    // an order of magnitude faster than BigInt per operation. Found via forge.mjs's fuzzer: a
+    // 40-case fault-injection run that should take seconds was taking 8+ CPU-minutes because
+    // every near-fuel-cap fuzz program paid a BigInt increment+compare on every one of its
+    // (up to 50,000,000) steps. fuelMax is still accepted/stored as a BigInt (set_fuel_max's call
+    // sites all pass BigInt literals; unchanged), converted to a Number once per run() call here,
+    // not per step. lastSteps is converted back to BigInt at each return point below so
+    // get_last_steps()'s return type is unchanged for callers (verified: its one consumer,
+    // seed/lumen_mcp.mjs, only calls .toString() on it, which BigInt and Number both support
+    // identically for the exact integers this ever holds).
+    const fuelCap = Number(fuelMax);
+    let fuel = 0;
     for (;;) {
       fuel++;
-      if (fuel > fuelMax) break;
+      if (fuel > fuelCap) break;
       const op = codew(pc); pc++;
       switch (op) {
-        case 0: fuel = fuel; lastSteps = fuel; return; // HALT
+        case 0: lastSteps = BigInt(fuel); return; // HALT
         case 1: { opush(BigInt(codew(pc))); pc++; break; }                              // PUSH imm
         case 2: { getarg(codew(pc)); pc++; break; }                                     // GETARG
         case 3: { const b = opop(), a = opop(); opush(a + b); break; }                  // ADD
@@ -221,7 +237,7 @@ export function createInterpreter() {
           break;
         }
         case 9: {                                                                        // RET
-          if (csp === 0) { lastSteps = fuel; return; }   // top-level RET: halt, no underflow
+          if (csp === 0) { lastSteps = BigInt(fuel); return; }   // top-level RET: halt, no underflow
           const t = opop();
           osp = argbase;
           opush(t);
@@ -278,7 +294,7 @@ export function createInterpreter() {
         case 25: {                                                                       // MKSUM tag
           const target = codew(pc); pc++;
           const t = opop();
-          if (hp + 16 > HEAP_CEIL) { lastSteps = fuel; return; }   // SAFETY: heap bound -> halt
+          if (hp + 16 > HEAP_CEIL) { lastSteps = BigInt(fuel); return; }   // SAFETY: heap bound -> halt
           const entry = halloc(16);
           dv.setInt32(entry, target, true);
           dv.setBigInt64(entry + 8, wrapS64(t), true);
@@ -319,7 +335,7 @@ export function createInterpreter() {
         case 49: {                                                                       // ANEW: pop n -> alloc zeroed array
           const n = opop();
           const size = 4 + Number(n) * 8;
-          if (hp + size > HEAP_CEIL) { lastSteps = fuel; return; }   // SAFETY: heap bound -> halt
+          if (hp + size > HEAP_CEIL) { lastSteps = BigInt(fuel); return; }   // SAFETY: heap bound -> halt
           const entry = halloc(size);
           dv.setInt32(entry, Number(n), true);
           for (let i = 0; i < Number(n); i++) dv.setBigInt64(entry + 4 + i * 8, 0n, true);
@@ -359,10 +375,10 @@ export function createInterpreter() {
         case 61: { const n = opop(), a = opop(); opush(wrapS64(asU64(a) << (n & 63n))); break; }      // SHL
         case 62: { const n = opop(), a = opop(); opush(wrapS64(asU64(a) >> (n & 63n))); break; }      // SHR (logical/unsigned)
         case 63: { opush(wrapS64(~opop())); break; }                                     // BNOT
-        default: { lastSteps = fuel; return; }   // unrecognized opcode: halt, same as $run's fallthrough
+        default: { lastSteps = BigInt(fuel); return; }   // unrecognized opcode: halt, same as $run's fallthrough
       }
     }
-    lastSteps = fuel;
+    lastSteps = BigInt(fuel);
   }
 
   return {
