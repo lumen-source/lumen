@@ -15,10 +15,12 @@ This registers the CURRENT 10-task repo scale as interim only, of which 8 are he
 statistically counted; the other 2 are the dev shard, not counted (see Shard design below for
 why the split is 8-and-2 rather than all 10). `docs/LUMEN_UNIVERSAL_COVERAGE_PLAN.md` section
 4's target is >= 100 frozen tasks; that scale gets its own v2 registration once the corpus
-grows (WP-promptgreen). At n=8, a one-sided Wilcoxon's best-case exact p-value (all 8 pairs
-favor one arm, no ties) is (1/2)^8 ~= 0.0078, so alpha=0.05 is technically reachable, but only
-for a large, near-unanimous effect; this design has essentially no power to detect a modest
-one. A confirmed H1 here is an honest interim signal at n=8, not the production "beats Python"
+grows (WP-promptgreen). At n=8, a ONE-SIDED Wilcoxon's best-case exact p-value (all 8 pairs
+favor Lumen, no ties) is (1/2)^8 ~= 0.0039 (not the two-sided `2 x (1/2)^8 ~= 0.0078` this
+document's own math carried over from an earlier, two-sided draft and never re-derived when
+the primary test changed to one-sided; corrected here), so alpha=0.05 is technically reachable,
+but only for a large, near-unanimous effect; this design has essentially no power to detect a
+modest one. A confirmed H1 here is an honest interim signal at n=8, not the production "beats Python"
 claim, which needs the >= 100-task, Arc 3-scale rig. Say this out loud so nobody downstream
 quotes v1's n=8 as if it were that rig.
 
