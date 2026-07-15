@@ -19,9 +19,9 @@ const lmIR = new Int32Array(L.exports.mem.buffer, CODE_BASE, resB.irWords).slice
 const memB = new DataView(L.exports.mem.buffer);
 const u8B = new Uint8Array(L.exports.mem.buffer);
 let lexCompileEntry = -1; const lexEntries = [];
-for (let addr = 150000; addr < 157000; addr += 12) {
+for (let addr = 170000; addr < 177000; addr += 12) {
   const off = memB.getInt32(addr, true), len = memB.getInt32(addr + 4, true), entry = memB.getInt32(addr + 8, true);
-  if (off >= 100000 && off < 150000 && len > 0) {
+  if (off >= 100000 && off < 170000 && len > 0) {
     const name = Buffer.from(u8B.slice(off, off + len)).toString();
     if (name === 'lex_compile') lexCompileEntry = entry;
     else if (name === 'lex') lexEntries.push(entry);

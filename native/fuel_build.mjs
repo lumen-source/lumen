@@ -36,7 +36,7 @@ async function freshInstance() {
 
 function writeSrc(I, src) {
   const b = Buffer.from(src, 'utf8');
-  if (b.length > 50000) throw new Error(`source ${b.length}B exceeds SRC capacity`);
+  if (b.length > 70000) throw new Error(`source ${b.length}B exceeds SRC capacity`);   // D4: matches widened SRC region
   new Uint8Array(I.ex.mem.buffer, SRC_BASE, b.length).set(b);
   return b.length;
 }

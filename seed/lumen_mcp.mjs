@@ -231,16 +231,16 @@ async function profileSource(src, opts = {}) {
     cacheWrite('profile', src, result);
     return result;
   }
-  // symbol table: entries at [150000,157000), 12 bytes each (name_off, name_len, entry).
-  // name_off points into the SRC region [100000,150000) -- see selfhost_diff.mjs.
+  // symbol table: entries at [170000,177000), 12 bytes each (name_off, name_len, entry).
+  // name_off points into the SRC region [100000,170000) -- see selfhost_diff.mjs.
   const memB = new DataView(ex.mem.buffer);
   const u8B = new Uint8Array(ex.mem.buffer);
   const funcs = [];
-  for (let addr = 150000; addr < 157000; addr += 12) {
+  for (let addr = 170000; addr < 177000; addr += 12) {
     const name_off = memB.getInt32(addr, true);
     const name_len = memB.getInt32(addr + 4, true);
     const entry = memB.getInt32(addr + 8, true);
-    if (name_off >= 100000 && name_off < 150000 && name_len > 0) {
+    if (name_off >= 100000 && name_off < 170000 && name_len > 0) {
       const name = Buffer.from(u8B.slice(name_off, name_off + name_len)).toString('utf8');
       funcs.push({ name, entry });
     }
@@ -270,8 +270,8 @@ async function profileSource(src, opts = {}) {
 
 // lumen_symbols: outline a source's top-level functions for agent navigation (name, entry
 // address, source line, and the declaring line's text). Reuses the same symbol-table layout
-// as selfhost_diff.mjs / profileSource: entries at [150000,157000), 12 bytes each
-// (name_off, name_len, entry), name bytes in the SRC region [100000,150000). `line` is found
+// as selfhost_diff.mjs / profileSource: entries at [170000,177000), 12 bytes each
+// (name_off, name_len, entry), name bytes in the SRC region [100000,170000). `line` is found
 // by locating the first `fn <name>(` occurrence in the source and counting newlines before it
 // (1-indexed); `signature` is that occurrence's full source line text.
 function lineAndSignature(src, name) {
@@ -299,11 +299,11 @@ function symbolsFromSource(src) {
   const u8B = new Uint8Array(ex.mem.buffer);
   const seen = new Set();
   const symbols = [];
-  for (let addr = 150000; addr < 157000; addr += 12) {
+  for (let addr = 170000; addr < 177000; addr += 12) {
     const name_off = memB.getInt32(addr, true);
     const name_len = memB.getInt32(addr + 4, true);
     const entry = memB.getInt32(addr + 8, true);
-    if (name_off >= 100000 && name_off < 150000 && name_len > 0) {
+    if (name_off >= 100000 && name_off < 170000 && name_len > 0) {
       if (seen.has(entry)) continue;   // a function can have >1 symtab record; list it once
       seen.add(entry);
       const name = Buffer.from(u8B.slice(name_off, name_off + name_len)).toString('utf8');
@@ -339,7 +339,7 @@ function tokensFromSource(src) {
     const a = memB.getInt32(base + 4, true);
     const b = memB.getInt32(base + 8, true);
     const t = { i, kind, a, b };
-    if (a >= 100000 && a < 150000 && b > 0) t.lexeme = Buffer.from(u8B.slice(a, a + b)).toString('utf8');
+    if (a >= 100000 && a < 170000 && b > 0) t.lexeme = Buffer.from(u8B.slice(a, a + b)).toString('utf8');
     tokens.push(t);
   }
   const result = { ok: true, count: n, tokens };

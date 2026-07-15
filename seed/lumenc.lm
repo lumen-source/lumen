@@ -1,32 +1,43 @@
 # lumenc.lm: The self-hosted Lumen compiler!
-# Memory map mirrors the seed's proven layout (SRC 100000, SYMBOLS 150000, params/locals
-# 157000/157500, FIXUPS 158000, TOKENS 296000, literal heap 488000) so a self-compile fits;
+# Memory map mirrors the seed's proven layout (SRC 100000, SYMBOLS 170000, params/locals
+# 177000/177500, FIXUPS 178000, TOKENS 396000, literal heap 488000) so a self-compile fits;
 # only CODE (211328) differs, because the seed's CODE_BASE holds this compiler's own IR.
+# (D4: SYMBOLS/PARAMS/LOCALS/FIXUPS shifted +20000 from the pre-Dec layout to widen SRC to
+# 70000 bytes -- lumenc.lm itself, now with Dec support, exceeds the old 50000-byte SRC cap
+# when it compiles itself. SEPARATELY, D4 also shifted VARIANTS/PTYPES/LTYPES/RETTYPES/
+# FIELDS/RECTYPES/DIAG/TOKENS/HEAP by +100000 (270000->370000 etc): the self-hosted
+# compiler's OWN CODE() buffer -- where it accumulates the IR of whatever it is compiling --
+# had only [211328,270000) = 14668 words of headroom before it collided with VARIANTS, and
+# lumenc.lm's self-compile now needs >15000 words with Dec support. Confirmed empirically:
+# without this shift, `ptype(0)` reads back a stray IR opcode instead of 0/1/2 (CODE growth
+# overran PTYPES' bytes) and the self-hosted compiler's own TYPEMAP output on itself diverges
+# from the seed's -- see native_resident_test.mjs / native_fixpoint_test.mjs / selfhost_diff.mjs
+# SELF(lumenc.lm). CODE now has [211328,370000) = 39668 words of room.)
 fn SRC() -> Int { return 100000 }
-fn TOKENS() -> Int { return 296000 }
-fn SYMBOLS() -> Int { return 150000 }
-fn PARAMS() -> Int { return 157000 }
-fn LOCALS() -> Int { return 157500 }
-fn FIXUPS() -> Int { return 158000 }
+fn TOKENS() -> Int { return 396000 }
+fn SYMBOLS() -> Int { return 170000 }
+fn PARAMS() -> Int { return 177000 }
+fn LOCALS() -> Int { return 177500 }
+fn FIXUPS() -> Int { return 178000 }
 fn CODE() -> Int { return 211328 }
-fn HEAP() -> Int { return 300000 }
+fn HEAP() -> Int { return 400000 }
 # sum-type variant table: (name_off, name_len, tag) x 12 bytes, well clear of CODE growth
-# and the DIAG_BASE-style error records at 290000.
-fn VARIANTS() -> Int { return 270000 }
-fn VARIANT_OK_LIT() -> Int { return 271000 }
-fn VARIANT_ERR_LIT() -> Int { return 271010 }
+# and the DIAG_BASE-style error records at 390000.
+fn VARIANTS() -> Int { return 370000 }
+fn VARIANT_OK_LIT() -> Int { return 371000 }
+fn VARIANT_ERR_LIT() -> Int { return 371010 }
 # static-type side tables (4 bytes per entry, parallel to PARAMS/LOCALS/SYMBOLS): 0 = Int/Text/
 # other, 1 = Float - the only distinction the IR's TYPEMAP (op 57) and coercion rules need.
-fn PTYPES() -> Int { return 272000 }
-fn LTYPES() -> Int { return 273000 }
-fn RETTYPES() -> Int { return 274000 }
+fn PTYPES() -> Int { return 372000 }
+fn LTYPES() -> Int { return 373000 }
+fn RETTYPES() -> Int { return 374000 }
 # record tables, mirroring the seed's GLOBAL field model: fields are numbered by NAME across
 # all record types, first registration wins (index AND type). FIELDS entries are
 # (name_off, name_len, ftype) x 12 bytes, the entry position IS the global field index.
 # RECTYPES entries are (name_off, name_len, arity) x 12 bytes, where arity is
 # max(global index of the type's own fields) + 1 - the array size a construction allocates.
-fn FIELDS() -> Int { return 275000 }
-fn RECTYPES() -> Int { return 276000 }
+fn FIELDS() -> Int { return 375000 }
+fn RECTYPES() -> Int { return 376000 }
 
 # Globals mapped to memory [0..1024)
 fn get_emit() -> Int { return load32(0) }
@@ -98,6 +109,21 @@ fn is_alpha(c: Int) -> Int {
   if c >= 97 { if c <= 122 { return 1 } }
   if c == 95 { return 1 }
   return 0
+}
+
+# true if source byte i is 'd' AND not immediately followed by an identifier-continuation
+# character, so a number directly abutting an identifier (e.g. a typo like 1death) is not
+# silently swallowed as a Dec literal + garbage; it lexes as before (INT then IDENT) and
+# fails to parse, exactly matching the seed's own $is_d_suffix contract.
+fn is_d_suffix(i: Int, srclen: Int) -> Int {
+  if i >= srclen { return 0 }
+  if b(i) != 100 { return 0 }
+  if i + 1 < srclen {
+    let nc = b(i + 1)
+    if is_alpha(nc) == 1 { return 0 }
+    if is_digit(nc) == 1 { return 0 }
+  }
+  return 1
 }
 
 fn streq(p1: Int, p2: Int, len: Int) -> Int {
@@ -262,6 +288,29 @@ fn is_str_float_ty(off: Int, len: Int) -> Int {
   return 1
 }
 
+fn is_str_dec_ty(off: Int, len: Int) -> Int {
+  if len != 3 { return 0 }
+  if load8(off + 0) != 68 { return 0 }
+  if load8(off + 1) != 101 { return 0 }
+  if load8(off + 2) != 99 { return 0 }
+  return 1
+}
+
+# (D4) Single call-site for the Float/Dec type-tag decision, used everywhere a type
+# annotation is classified (record fields, fn params, fn return type). Originally each of
+# the three call sites ran is_str_float_ty and is_str_dec_ty back to back as two separate
+# top-level `if`s; empirically (selfhost_diff/native_resident's SELF fixpoint gate), having
+# BOTH of those checks repeated at more than one call site desynced the self-hosted
+# compiler's own compile of lumenc.lm from the seed's (a real, narrow self-hosting gap, not
+# a Dec-semantics bug -- every corpus program, including decimal.lm, stayed byte-identical
+# throughout). Routing every site through one shared helper removes the duplicated shape
+# and the fixpoint gate is green again; see native_resident_test.mjs/native_fixpoint_test.mjs.
+fn ty_tag(off: Int, len: Int) -> Int {
+  if is_str_float_ty(off, len) == 1 { return 1 }
+  if is_str_dec_ty(off, len) == 1 { return 2 }
+  return 0
+}
+
 fn is_str_to_float(off: Int, len: Int) -> Int {
   if len != 8 { return 0 }
   if load8(off + 0) != 116 { return 0 }
@@ -333,6 +382,51 @@ fn is_str_pow(off: Int, len: Int) -> Int {
   if load8(off + 0) != 112 { return 0 }
   if load8(off + 1) != 111 { return 0 }
   if load8(off + 2) != 119 { return 0 }
+  return 1
+}
+
+fn is_str_dec_div(off: Int, len: Int) -> Int {
+  if len != 7 { return 0 }
+  if load8(off + 0) != 100 { return 0 }
+  if load8(off + 1) != 101 { return 0 }
+  if load8(off + 2) != 99 { return 0 }
+  if load8(off + 3) != 95 { return 0 }
+  if load8(off + 4) != 100 { return 0 }
+  if load8(off + 5) != 105 { return 0 }
+  if load8(off + 6) != 118 { return 0 }
+  return 1
+}
+
+fn is_str_dec_to_text(off: Int, len: Int) -> Int {
+  if len != 11 { return 0 }
+  if load8(off + 0) != 100 { return 0 }
+  if load8(off + 1) != 101 { return 0 }
+  if load8(off + 2) != 99 { return 0 }
+  if load8(off + 3) != 95 { return 0 }
+  if load8(off + 4) != 116 { return 0 }
+  if load8(off + 5) != 111 { return 0 }
+  if load8(off + 6) != 95 { return 0 }
+  if load8(off + 7) != 116 { return 0 }
+  if load8(off + 8) != 101 { return 0 }
+  if load8(off + 9) != 120 { return 0 }
+  if load8(off + 10) != 116 { return 0 }
+  return 1
+}
+
+fn is_str_dec_to_float(off: Int, len: Int) -> Int {
+  if len != 12 { return 0 }
+  if load8(off + 0) != 100 { return 0 }
+  if load8(off + 1) != 101 { return 0 }
+  if load8(off + 2) != 99 { return 0 }
+  if load8(off + 3) != 95 { return 0 }
+  if load8(off + 4) != 116 { return 0 }
+  if load8(off + 5) != 111 { return 0 }
+  if load8(off + 6) != 95 { return 0 }
+  if load8(off + 7) != 102 { return 0 }
+  if load8(off + 8) != 108 { return 0 }
+  if load8(off + 9) != 111 { return 0 }
+  if load8(off + 10) != 97 { return 0 }
+  if load8(off + 11) != 116 { return 0 }
   return 1
 }
 
@@ -778,7 +872,7 @@ fn var_find(off: Int, len: Int) -> Int {
 }
 
 fn err_add(code: Int, off: Int, len: Int) -> Unit {
-  let base = 290000 + get_nerr() * 12
+  let base = 390000 + get_nerr() * 12
   store32(base, code)
   store32(base + 4, off)
   store32(base + 8, len)
@@ -933,6 +1027,14 @@ fn float_bits(off: Int, len: Int) -> Unit {
     i = i + 1
   }
   let v = to_float(ip) + to_float(fp) / div
+  float_bits_of(v)
+}
+
+# The bit-extraction half of float_bits, factored out (D4) so dec_to_float can reuse it for
+# a FIXED value (1_000_000.0, the FPUSH constant in the I2F/FPUSH/FDIV composition) without
+# duplicating the exact-operations argument: same reasoning as float_bits' own comment
+# applies unchanged, since it never depended on the value coming from a parsed literal.
+fn float_bits_of(v: Float) -> Unit {
   if v == 0.0 {
     set_flo(0)
     set_fhi(0)
@@ -973,6 +1075,73 @@ fn float_bits(off: Int, len: Int) -> Unit {
   }
   set_flo(lo32)
   set_fhi((e + 1023) * 1048576 + hi20)
+}
+
+# i64::MAX (9223372036854775807), built from three literals each well under 2^31. This
+# compiler's OWN source is compiled by the seed, whose lexer accumulates an Int literal's
+# digits into a 32-bit local ($val in $lex) -- a pre-existing, D1-discovered bug (tracked
+# separately, unrelated to Dec) that silently truncates any literal written directly in
+# source past ~2.1e9. Writing 9223372036854775807 literally here would be miscompiled by the
+# seed itself before dec_value ever ran. Built instead via runtime Int arithmetic (unaffected
+# by the bug, which is lexer-only) on three safe factors: (9*1e9 + 223372036) * 1e9 + 854775807.
+fn i64_max() -> Int {
+  return (9 * 1000000000 + 223372036) * 1000000000 + 854775807
+}
+
+# Parse a Dec literal's digit span (off, len; NOT including the trailing 'd' suffix) into an
+# EXACT i64 scaled by 1_000_000, mirroring $parse_dec_literal in lumenc.wat exactly: pure
+# integer accumulation (no Float intermediate -- exactness is the whole point of Dec, same
+# argument as the seed's own comment), same two errors (5: >6 fractional digits, 6: literal
+# magnitude does not fit in i64 after scaling), same 0 fallback so a bad literal never aborts
+# the compiler. Diagnostics are not part of the emitted-IR bit-identity contract
+# (err_add writes to the DIAG region, never read by selfhost_diff's comparison), so this
+# reuses the seed's numeric codes for consistency but does not attempt to reproduce its
+# byte-precise diagnostic *positions* (the seed anchors on the literal's own span; this
+# passes (off, len) too, which is as precise as lumenc.lm's own diagnostics get anywhere).
+fn dec_value(off: Int, len: Int) -> Int {
+  var i = 0
+  var d = 0
+  var dot = 0
+  var fdigits = 0
+  var overflow = 0
+  while i < len {
+    let ch = load8(off + i)
+    if ch == 46 {
+      dot = 1
+    } else {
+      let digit = ch - 48
+      if dot == 1 { fdigits = fdigits + 1 }
+      if d > (i64_max() - digit) / 10 {
+        overflow = 1
+      } else {
+        d = d * 10 + digit
+      }
+    }
+    i = i + 1
+  }
+  if fdigits > 6 {
+    err_add(5, off, len)
+    return 0
+  }
+  if overflow == 1 {
+    err_add(6, off, len)
+    return 0
+  }
+  var pad = 6 - fdigits
+  while pad > 0 {
+    if d > i64_max() / 10 {
+      overflow = 1
+      pad = 0
+    } else {
+      d = d * 10
+      pad = pad - 1
+    }
+  }
+  if overflow == 1 {
+    err_add(6, off, len)
+    return 0
+  }
+  return d
 }
 
 # ==========================================
@@ -1028,10 +1197,15 @@ fn lex(srclen: Int) -> Unit {
               }
             }
           }
-          if isfloat == 1 {
-            tokset(n, 30, SRC() + dstart, i - dstart)
+          if is_d_suffix(i, srclen) == 1 {
+            tokset(n, 31, SRC() + dstart, i - dstart)
+            i = i + 1
           } else {
-            tokset(n, 2, val, 0)
+            if isfloat == 1 {
+              tokset(n, 30, SRC() + dstart, i - dstart)
+            } else {
+              tokset(n, 2, val, 0)
+            }
           }
           n = n + 1
         } else {
@@ -1202,6 +1376,15 @@ fn c_primary() -> Unit {
     set_etype(1)
     return ()
   }
+  if k == 31 {
+    let dv = dec_value(ta(get_tp()), tb(get_tp()))
+    emitw(64)
+    emitw(dv)
+    emitw(shr(dv, 32))
+    adv()
+    set_etype(2)
+    return ()
+  }
   if k == 20 {
     emitw(15)
     emitw(mktext_lit(ta(get_tp()), tb(get_tp())))
@@ -1330,6 +1513,22 @@ fn c_primary() -> Unit {
       return ()
     }
     
+    if tk(get_tp()) == 3 and is_str_dec_div(off, length) == 1 {
+      # dec_div(a, b) (D4): special-cased ahead of the generic call parsing below, because it
+      # needs BOTH argument types individually for coercion, and the generic argc-loop below
+      # only leaves get_etype() reflecting the LAST argument once it has run. emit_dec_arith
+      # already contains the full Float-mix-ban + Int-coercion + decop-emission logic, so
+      # this is a thin wrapper -- exactly the seed's own approach, verified bit-identical.
+      adv()
+      c_expr()
+      let ta1 = get_etype()
+      if tk(get_tp()) == 7 { adv() }
+      c_expr()
+      if tk(get_tp()) == 4 { adv() }
+      emit_dec_arith(ta1, 69)
+      return ()
+    }
+
     if tk(get_tp()) == 3 {
       adv()
       var argc = 0
@@ -1355,6 +1554,11 @@ fn c_primary() -> Unit {
         set_etype(0)
         return ()
       }
+      # (D4) dec_to_text/dec_to_float need the LAST ARGUMENT's real etype (Int/Float/Dec) to
+      # decide whether to insert the DFROMI coercion, but set_etype(0) immediately below
+      # (the shared default for every OTHER builtin here, most of which ignore their argument's
+      # incoming etype entirely) stomps it before those two checks run. Save it first.
+      let call_arg_etype = get_etype()
       set_etype(0)
       if is_str_int_to_text(off, length) == 1 { emitw(18)  return () }
       if is_str_text_concat(off, length) == 1 { emitw(17)  return () }
@@ -1381,6 +1585,31 @@ fn c_primary() -> Unit {
       if is_str_exp(off, length) == 1 { emitw(46)  set_etype(1)  return () }
       if is_str_ln(off, length) == 1 { emitw(47)  set_etype(1)  return () }
       if is_str_pow(off, length) == 1 { emitw(48)  set_etype(1)  return () }
+      if is_str_dec_to_text(off, length) == 1 {
+        if call_arg_etype == 1 {
+          err_add(7, 0, 0)
+        } else {
+          if call_arg_etype == 0 { emitw(65) }
+        }
+        emitw(70)
+        set_etype(0)
+        return ()
+      }
+      if is_str_dec_to_float(off, length) == 1 {
+        if call_arg_etype == 1 {
+          err_add(7, 0, 0)
+        } else {
+          if call_arg_etype == 0 { emitw(65) }
+        }
+        emitw(30)
+        float_bits_of(to_float(1000000))
+        emitw(29)
+        emitw(get_flo())
+        emitw(get_fhi())
+        emitw(35)
+        set_etype(1)
+        return ()
+      }
 
       let sidx = sym_index(off, length)
       emitw(8)
@@ -1465,7 +1694,11 @@ fn c_unary() -> Unit {
       emitw(31)
       emitw(33)
     } else {
-      emitw(4)
+      if get_etype() == 2 {
+        emitw(67)
+      } else {
+        emitw(4)
+      }
     }
     return ()
   }
@@ -1502,13 +1735,109 @@ fn emit_cmp(lt: Int, intop: Int, fop: Int) -> Unit {
   set_etype(0)
 }
 
+# ---- Dec (D4): parallel to emit_arith/emit_cmp above, gated at each call site by "is
+# either operand Dec" (emit_arith2/emit_cmp2 below) so the Int/Float paths above run
+# byte-for-byte unchanged when Dec is not involved -- same discipline as D1's WAT and D2's
+# C emitter: a new parallel path, not a modification of the well-tested existing one.
+#
+# Int-side coercion to Dec (DFROMI, op 65) converts only TOS, mirroring I2F (op 30). When
+# the Int operand is the value UNDER TOS instead (lhs Int, rhs Dec -- stack is [lhs, rhs]),
+# there is no DFROMIU: this reuses the tmp_local scratch-slot shuffle (SETLOCAL tmp / DFROMI
+# / GETARG tmp) exactly as the seed's own emitter does, producing the identical IR sequence
+# op-for-op (verified by selfhost_diff's bit-identical comparison, not just by inspection).
+fn emit_dec_arith(lt: Int, decop: Int) -> Unit {
+  let rt = get_etype()
+  if lt == 1 or rt == 1 {
+    err_add(7, 0, 0)
+    emitw(3)
+    set_etype(2)
+    return ()
+  }
+  if rt == 0 { emitw(65) }
+  if lt == 0 {
+    let tmp = tmp_local()
+    emitw(14)
+    emitw(tmp)
+    emitw(65)
+    emitw(2)
+    emitw(tmp)
+  }
+  emitw(decop)
+  set_etype(2)
+}
+
+# Unified entry point for '+' and '*' (and dec_div's own DDIV emission): routes to
+# emit_dec_arith when Dec is involved, else calls emit_arith exactly as before.
+fn emit_arith2(lt: Int, intop: Int, fop: Int, decop: Int) -> Unit {
+  let rt = get_etype()
+  if lt == 2 or rt == 2 {
+    emit_dec_arith(lt, decop)
+    return ()
+  }
+  emit_arith(lt, intop, fop)
+}
+
+# Dec-aware comparison: same Float-mix ban and Int-coercion shuffle as emit_dec_arith, but
+# Dec-Dec (once same-scaled) reuses the given INT comparison op directly -- the same-scale
+# invariant makes a raw i64 compare exact, so there are no separate Dec comparison opcodes.
+fn emit_dec_cmp(lt: Int, intop: Int) -> Unit {
+  let rt = get_etype()
+  if lt == 1 or rt == 1 {
+    err_add(7, 0, 0)
+    emitw(3)
+    set_etype(0)
+    return ()
+  }
+  if rt == 0 { emitw(65) }
+  if lt == 0 {
+    let tmp = tmp_local()
+    emitw(14)
+    emitw(tmp)
+    emitw(65)
+    emitw(2)
+    emitw(tmp)
+  }
+  emitw(intop)
+  set_etype(0)
+}
+
+fn emit_cmp2(lt: Int, intop: Int, fop: Int) -> Unit {
+  let rt = get_etype()
+  if lt == 2 or rt == 2 {
+    emit_dec_cmp(lt, intop)
+    return ()
+  }
+  emit_cmp(lt, intop, fop)
+}
+
+# '/' on Dec: Float-mix is checked FIRST (the more fundamental error -- "1.5 / priceDec"
+# should say Float and Dec never mix, not send the user to dec_div with a Float argument
+# dec_div cannot accept either). Only once Float is ruled out does a Dec operand (bare or
+# Int-coerced) ban '/' outright (E0008; use dec_div). Neither operand Dec: unchanged.
+fn c_div_op(lt: Int) -> Unit {
+  let rt = get_etype()
+  if (lt == 1 or rt == 1) and (lt == 2 or rt == 2) {
+    err_add(7, 0, 0)
+    emitw(3)
+    set_etype(2)
+    return ()
+  }
+  if lt == 2 or rt == 2 {
+    err_add(8, 0, 0)
+    emitw(3)
+    set_etype(2)
+    return ()
+  }
+  emit_arith(lt, 12, 35)
+}
+
 fn c_mul() -> Unit {
   c_unary()
   var loop = 1
   while loop == 1 {
     let k = tk(get_tp())
-    if k == 17 { adv()  let lt = get_etype()  c_unary()  emit_arith(lt, 11, 34) } else {
-    if k == 18 { adv()  let lt2 = get_etype()  c_unary()  emit_arith(lt2, 12, 35) } else {
+    if k == 17 { adv()  let lt = get_etype()  c_unary()  emit_arith2(lt, 11, 34, 68) } else {
+    if k == 18 { adv()  let lt2 = get_etype()  c_unary()  c_div_op(lt2) } else {
     if k == 26 { adv()  c_unary()  emitw(24)  set_etype(0) } else {
       loop = 0
     }}}
@@ -1520,8 +1849,8 @@ fn c_add() -> Unit {
   var loop = 1
   while loop == 1 {
     let k = tk(get_tp())
-    if k == 10 { adv()  let lt = get_etype()  c_mul()  emit_arith(lt, 3, 32) } else {
-    if k == 11 { adv()  let lt2 = get_etype()  c_mul()  emit_arith(lt2, 4, 33) } else {
+    if k == 10 { adv()  let lt = get_etype()  c_mul()  emit_arith2(lt, 3, 32, 66) } else {
+    if k == 11 { adv()  let lt2 = get_etype()  c_mul()  emit_arith2(lt2, 4, 33, 67) } else {
       loop = 0
     }}
   }
@@ -1530,12 +1859,12 @@ fn c_add() -> Unit {
 fn c_cmp() -> Unit {
   c_add()
   let k = tk(get_tp())
-  if k == 12 { adv()  let lt = get_etype()  c_add()  emit_cmp(lt, 5, 36)  return () }
-  if k == 21 { adv()  let lt = get_etype()  c_add()  emit_cmp(lt, 19, 40)  return () }
-  if k == 22 { adv()  let lt = get_etype()  c_add()  emit_cmp(lt, 20, 41)  return () }
-  if k == 23 { adv()  let lt = get_etype()  c_add()  emit_cmp(lt, 21, 37)  return () }
-  if k == 24 { adv()  let lt = get_etype()  c_add()  emit_cmp(lt, 22, 39)  return () }
-  if k == 25 { adv()  let lt = get_etype()  c_add()  emit_cmp(lt, 23, 38) }
+  if k == 12 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 5, 36)  return () }
+  if k == 21 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 19, 40)  return () }
+  if k == 22 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 20, 41)  return () }
+  if k == 23 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 21, 37)  return () }
+  if k == 24 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 22, 39)  return () }
+  if k == 25 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 23, 38) }
 }
 
 # Boolean operators, seed-identical shapes (loosest to tightest: or < and < not < cmp).
@@ -1642,8 +1971,8 @@ fn c_type() -> Unit {
         adv()
         adv()
         var ft = 0
-        if tk(get_tp()) == 1 and is_str_float_ty(ta(get_tp()), tb(get_tp())) == 1 {
-          ft = 1
+        if tk(get_tp()) == 1 {
+          ft = ty_tag(ta(get_tp()), tb(get_tp()))
         }
         skip_type()
         let gidx = field_add(foff, flen, ft)
@@ -1887,10 +2216,9 @@ fn c_fn() -> Unit {
       param_add(ta(get_tp()), tb(get_tp()))
       adv()
       adv()
-      if is_str_float_ty(ta(get_tp()), tb(get_tp())) == 1 {
-        if tk(get_tp()) == 1 {
-          ptype_set(get_nparam() - 1, 1)
-        }
+      if tk(get_tp()) == 1 {
+        let pt = ty_tag(ta(get_tp()), tb(get_tp()))
+        if pt != 0 { ptype_set(get_nparam() - 1, pt) }
       }
       skip_type()
       if tk(get_tp()) == 7 {
@@ -1901,10 +2229,9 @@ fn c_fn() -> Unit {
   adv()
   if tk(get_tp()) == 9 {
     adv()
-    if is_str_float_ty(ta(get_tp()), tb(get_tp())) == 1 {
-      if tk(get_tp()) == 1 {
-        rettype_set(symidx, 1)
-      }
+    if tk(get_tp()) == 1 {
+      let rt = ty_tag(ta(get_tp()), tb(get_tp()))
+      if rt != 0 { rettype_set(symidx, rt) }
     }
     skip_type()
   }

@@ -4,7 +4,7 @@
 // Ships the RAW (unoptimized) IR variant, not the optimize.lm-passed one. Reason: emit_fn.lm
 // names each emitted C function f<pc>, where pc is the function's op-13 (RESERVE) word index
 // in the IR it was given. The lex_compile entry point is located by scanning the compiler's
-// own symbol table (12-byte records at [150000,157000): name_off, name_len, entry), the same
+// own symbol table (12-byte records at [170000,177000): name_off, name_len, entry), the same
 // technique selfhost_diff.mjs uses to redirect stale CALLs. That symbol table is populated
 // during compilation and its entry values are pcs into the RAW IR the compile pass produced.
 // optimize.lm's passes (dead-code elimination, thread-jump folding, ...) can move function
@@ -24,9 +24,9 @@ import { freshInstance, writeSrc, emitWith, EMIT_FN_BASE, EMIT_FN_CEIL } from '.
 
 const CODE_BASE = 11328;      // emitted IR words (matches seed/compiler_core.mjs CODE_BASE)
 const SRC_BASE = 100000;      // SRC() in the seed's memory map
-export const SRC_CAP = 50000; // SRC region is [100000,150000); matches compiler_core SRC_CAPACITY
-const SYMTAB_BASE = 150000;
-const SYMTAB_CEIL = 157000;   // same scan window selfhost_diff.mjs uses
+export const SRC_CAP = 70000; // SRC region is [100000,170000); matches compiler_core SRC_CAPACITY
+const SYMTAB_BASE = 170000;
+const SYMTAB_CEIL = 177000;   // same scan window selfhost_diff.mjs uses
 const OUT_EMIT_COUNT_ADDR = 0;
 const OUT_NERR_ADDR = 28;
 const OUT_IR_BASE = 211328;
@@ -36,13 +36,15 @@ export const LIT_HEAP_BYTES = LIT_HEAP_CEIL - LIT_HEAP_BASE;   // 36288
 // NOT 286000 (that is seed/compiler_core.mjs's DIAG_BASE, the WAT-NATIVE bootstrap compiler's
 // OWN internal diagnostic-record address for compiling arbitrary source directly). This driver
 // runs lumenc.lm SELF-HOSTED - a separate Lumen program interpreted/compiled atop that wat VM,
-// with its own memory layout. lumenc.lm's own err_add (seed/lumenc.lm:780-786) writes records
-// at 290000 + nerr*12, matching its header comment ("the DIAG_BASE-style error records at
-// 290000", seed/lumenc.lm:14); the ceiling is TOKENS() = 296000 (seed/lumenc.lm:6), the next
-// region lumenc.lm's own memory map documents. Verified empirically against
-// seed/compiler_core.mjs's readRawDiags() output for the same source (native/native_resident_test.mjs).
-const DIAG_BASE = 290000;
-const DIAG_CEIL = 296000;
+// with its own memory layout. lumenc.lm's own err_add (seed/lumenc.lm:874-879) writes records
+// at 390000 + nerr*12 (D4: shifted +100000 from 290000, along with VARIANTS/PTYPES/LTYPES/
+// RETTYPES/FIELDS/RECTYPES/TOKENS/HEAP, to give CODE() room to hold the now-larger Dec-aware
+// lumenc.lm's own IR when it self-compiles -- see seed/lumenc.lm's header comment); the
+// ceiling is TOKENS() = 396000 (seed/lumenc.lm:16), the next region lumenc.lm's own memory
+// map documents. Verified empirically against seed/compiler_core.mjs's readRawDiags() output
+// for the same source (native/native_resident_test.mjs).
+const DIAG_BASE = 390000;
+const DIAG_CEIL = 396000;
 const DIAG_RECORD_CAP = Math.floor((DIAG_CEIL - DIAG_BASE) / 12);   // 500 (code,name_off,name_len) triples
 
 const EMIT_FN_SRC = fs.readFileSync(new URL('./emit_fn.lm', import.meta.url), 'utf8');
@@ -109,7 +111,7 @@ async function compileLumencRaw() {
 // compileToIR/compileLumencRaw construct their strings sidecars by reading getInt32(ptr) then
 // ptr+4..ptr+4+len (see compileToIR in pipeline.mjs and the strings walk above). The main entry
 // is found by a logic-free scan of the symbol table (12-byte records name_off/name_len/entry in
-// [150000,157000), names in [100000,150000)) for the 4-byte name "main", the same region/stride
+// [170000,177000), names in [100000,170000)) for the 4-byte name "main", the same region/stride
 // selfhost_diff.mjs and compileLumencRaw already scan for lex_compile.
 //
 // R3 addition: the binary also accepts one CLI flag, `--resident`, which switches `main` to a
@@ -128,7 +130,7 @@ async function compileLumencRaw() {
 // The response payload's first part (nerr..literal_heap) is byte-for-byte the one-shot format
 // above; a reader that already understands that format only needs to additionally consume the
 // outer 4-byte length and the trailing diagnostic-record block. Diagnostic records come from
-// lumenc.lm's OWN err_add region (DIAG_BASE=290000, see the constant's comment above - NOT
+// lumenc.lm's OWN err_add region (DIAG_BASE=390000, see the constant's comment above - NOT
 // compiler_core.mjs's 286000, a different program's internal address), 12 bytes/record,
 // code/name_off/name_len, the same field order seed/compiler_core.mjs's readRawDiags() exposes,
 // so a client can reconstruct the same {code, byteOff, byteLen, name} shape the wasm daemon
@@ -188,11 +190,11 @@ static void lm_resident_loop(void){
     int32_t nerr=*(int32_t*)(LMEM+${OUT_NERR_ADDR});
     int32_t emitc=*(int32_t*)(LMEM+${OUT_EMIT_COUNT_ADDR});
     int32_t mainentry=0;
-    for(int32_t addr=150000;addr<157000;addr+=12){
+    for(int32_t addr=170000;addr<177000;addr+=12){
       int32_t name_off=*(int32_t*)(LMEM+addr);
       int32_t name_len=*(int32_t*)(LMEM+addr+4);
       int32_t entry=*(int32_t*)(LMEM+addr+8);
-      if(name_len==4 && name_off>=100000 && name_off<150000
+      if(name_len==4 && name_off>=100000 && name_off<170000
          && LMEM[name_off]=='m' && LMEM[name_off+1]=='a' && LMEM[name_off+2]=='i' && LMEM[name_off+3]=='n'){
         mainentry=entry;
       }
@@ -231,11 +233,11 @@ int main(int argc,char**argv){
                          // function literally named "main" exists in the compiled input, the
                          // seed's dbg_main() reports this same uninitialized default, not a
                          // sentinel - mirror that convention exactly rather than inventing one.
-  for(int32_t addr=150000;addr<157000;addr+=12){
+  for(int32_t addr=170000;addr<177000;addr+=12){
     int32_t name_off=*(int32_t*)(LMEM+addr);
     int32_t name_len=*(int32_t*)(LMEM+addr+4);
     int32_t entry=*(int32_t*)(LMEM+addr+8);
-    if(name_len==4 && name_off>=100000 && name_off<150000
+    if(name_len==4 && name_off>=100000 && name_off<170000
        && LMEM[name_off]=='m' && LMEM[name_off+1]=='a' && LMEM[name_off+2]=='i' && LMEM[name_off+3]=='n'){
       mainentry=entry;
     }

@@ -43,7 +43,7 @@ export async function freshInstance() {
 
 export function writeSrc(I, src) {
   const b = Buffer.from(src, 'utf8');
-  if (b.length > 50000) throw new Error(`source ${b.length}B exceeds SRC capacity`);
+  if (b.length > 70000) throw new Error(`source ${b.length}B exceeds SRC capacity`);   // D4: matches seed/lumenc.wat's widened SRC region [100000,170000)
   new Uint8Array(I.ex.mem.buffer, SRC_BASE, b.length).set(b);
   return b.length;
 }

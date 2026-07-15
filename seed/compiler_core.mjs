@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import wabtInit from 'wabt';
 
 export const SRC_BASE = 100000;
-export const SRC_CAPACITY = 50000;   // SRC region is [100000,150000); a longer source overruns into the TOKENS region at 150000
+export const SRC_CAPACITY = 70000;   // SRC region is [100000,170000) (D4: raised from 50000 so lumenc.lm's own growth to compile Dec still self-hosts); a longer source overruns into the SYMBOLS region at 170000
 export const DIAG_BASE = 286000;   // compile-error records: (code, name_off, name_len) x i32
 export const CODE_BASE = 11328;   // emitted IR words
 

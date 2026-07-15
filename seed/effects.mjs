@@ -27,15 +27,15 @@ export const CAPABILITY_REGISTRY = {
 };
 
 // IR layout constants shared with compiler_core.mjs (CODE_BASE) and lumen_mcp.mjs's own
-// symbolsFromSource (the [150000,157000) symbol table, 12 bytes/entry: name_off:i32, name_len:i32,
+// symbolsFromSource (the [170000,177000) symbol table, 12 bytes/entry: name_off:i32, name_len:i32,
 // entry:i32 - "entry" is the position of the function's own RESERVE/op-13 header word, the same
 // value CALL's first operand resolves to after $resolve_fixups; see effects_test.mjs for the
 // cross-check that a symbol's `entry` always lands on a real op-13 boundary this file finds).
-const SYM_BASE = 150000;
-const SYM_END = 157000;
+const SYM_BASE = 170000;
+const SYM_END = 177000;
 const SYM_ENTRY_BYTES = 12;
 const SRC_BASE = 100000;
-const SRC_END = 150000;
+const SRC_END = 170000;
 
 // Operand-word counts. DELIBERATELY NOT the same object as compiler_core.mjs's ONE_OPERAND / any
 // of the several near-duplicates elsewhere in this repo (native/pipeline.mjs pre-D2, native/

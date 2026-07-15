@@ -285,9 +285,9 @@ if (INLINE_ENABLED) {
   probe.compile(lmSrc);
   const dv = new DataView(probe.exports.mem.buffer); const u8 = new Uint8Array(probe.exports.mem.buffer);
   let lce = -1;
-  for (let a = 150000; a < 157000; a += 12) {
+  for (let a = 170000; a < 177000; a += 12) {
     const off = dv.getInt32(a, true), len = dv.getInt32(a + 4, true), e = dv.getInt32(a + 8, true);
-    if (off >= 100000 && off < 150000 && len > 0 &&
+    if (off >= 100000 && off < 170000 && len > 0 &&
         Buffer.from(u8.slice(off, off + len)).toString() === 'lex_compile') lce = e;
   }
   // optimize with lex_compile as the entry so its address rides the pc remap (a compacted

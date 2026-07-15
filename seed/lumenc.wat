@@ -23,11 +23,11 @@
 ;;   [9216 .. 11264)   call stack (i32 pairs: return_pc, prev_argbase; 256 deep)
 ;;   [11264 .. 11328)  itoa text buffer (ANCHOR 11326)
 ;;   [11328 .. 100000) CODE (emitted IR words; ~2167)
-;;   [100000 .. 150000) SRC (source bytes, host-written; 10 KB)
-;;   [150000 .. 157000) SYMBOLS (name_off, name_len, entry) = 12 bytes each (~583 fns)
-;;   [157000 .. 157500) PARAMS of current fn (name_off, name_len) = 8 bytes each (~62)
-;;   [157500 .. 158000) LOCALS of current fn (name_off, name_len) = 8 bytes each (~62)
-;;   [158000 .. 248000) free; builtin op-name literals at 160000 (band/bor/bxor/shl/shr/bnot)
+;;   [100000 .. 170000) SRC (source bytes, host-written; 10 KB)
+;;   [170000 .. 177000) SYMBOLS (name_off, name_len, entry) = 12 bytes each (~583 fns)
+;;   [177000 .. 177500) PARAMS of current fn (name_off, name_len) = 8 bytes each (~62)
+;;   [177500 .. 178000) LOCALS of current fn (name_off, name_len) = 8 bytes each (~62)
+;;   [178000 .. 248000) free; builtin op-name literals at 180000 (band/bor/bxor/shl/shr/bnot)
 ;;                      because the keyword region below is full and abuts the nvariant table
 ;;   [248000 .. 248400] keyword literals (data) + nvariant table
 ;;   [249000 .. 286000) call-target FIXUPS (code_pos, name_off, name_len) = 12 bytes each
@@ -82,21 +82,21 @@
   (data (i32.const 248380) "load8")
   (data (i32.const 248390) "store8")
   ;; bitwise builtin names. The keyword region [248000..248400] is full and abuts the runtime
-  ;; nvariant table at 248400, so these live in the free gap [158000..248000) (see memory map);
+  ;; nvariant table at 248400, so these live in the free gap [178000..248000) (see memory map);
   ;; $eqlit compares source tokens against these bytes at any address.
-  (data (i32.const 160000) "band")
-  (data (i32.const 160016) "bor")
-  (data (i32.const 160032) "bxor")
-  (data (i32.const 160048) "shl")
-  (data (i32.const 160064) "shr")
-  (data (i32.const 160080) "bnot")
+  (data (i32.const 180000) "band")
+  (data (i32.const 180016) "bor")
+  (data (i32.const 180032) "bxor")
+  (data (i32.const 180048) "shl")
+  (data (i32.const 180064) "shr")
+  (data (i32.const 180080) "bnot")
   ;; Dec (exact decimal, D1): the type keyword + its three builtin names, same free-gap
   ;; convention as the bitwise names above (16-byte slots, keyword region [248000..248400)
   ;; is full).
-  (data (i32.const 160096) "Dec")
-  (data (i32.const 160112) "dec_div")
-  (data (i32.const 160128) "dec_to_text")
-  (data (i32.const 160144) "dec_to_float")
+  (data (i32.const 180096) "Dec")
+  (data (i32.const 180112) "dec_div")
+  (data (i32.const 180128) "dec_to_text")
+  (data (i32.const 180144) "dec_to_float")
 
   (global $osp     (mut i32) (i32.const 0))
   (global $csp     (mut i32) (i32.const 0))
@@ -197,7 +197,7 @@
       (then
         (call $err_add (i32.const 3) (local.get $off) (local.get $len))
         (return)))
-    (local.set $base (i32.add (i32.const 150000) (i32.mul (global.get $nsym) (i32.const 12))))
+    (local.set $base (i32.add (i32.const 170000) (i32.mul (global.get $nsym) (i32.const 12))))
     (i32.store (local.get $base) (local.get $off))
     (i32.store (i32.add (local.get $base) (i32.const 4)) (local.get $len))
     (i32.store (i32.add (local.get $base) (i32.const 8)) (local.get $entry))
@@ -208,7 +208,7 @@
     (block $done
       (loop $l
         (br_if $done (i32.ge_u (local.get $k) (global.get $nsym)))
-        (local.set $base (i32.add (i32.const 150000) (i32.mul (local.get $k) (i32.const 12))))
+        (local.set $base (i32.add (i32.const 170000) (i32.mul (local.get $k) (i32.const 12))))
         (if (call $eqlit (i32.load (local.get $base)) (i32.load (i32.add (local.get $base) (i32.const 4)))
                          (local.get $off) (local.get $len))
           (then (return (i32.load (i32.add (local.get $base) (i32.const 8))))))
@@ -217,7 +217,7 @@
     (return (i32.const -1)))
   (func $param_add (param $off i32) (param $len i32)
     (local $base i32)
-    (local.set $base (i32.add (i32.const 157000) (i32.mul (global.get $nparam) (i32.const 8))))
+    (local.set $base (i32.add (i32.const 177000) (i32.mul (global.get $nparam) (i32.const 8))))
     (i32.store (local.get $base) (local.get $off))
     (i32.store (i32.add (local.get $base) (i32.const 4)) (local.get $len))
     (global.set $nparam (i32.add (global.get $nparam) (i32.const 1))))
@@ -227,7 +227,7 @@
     (block $done
       (loop $l
         (br_if $done (i32.ge_u (local.get $k) (global.get $nparam)))
-        (local.set $base (i32.add (i32.const 157000) (i32.mul (local.get $k) (i32.const 8))))
+        (local.set $base (i32.add (i32.const 177000) (i32.mul (local.get $k) (i32.const 8))))
         (if (call $eqlit (i32.load (local.get $base)) (i32.load (i32.add (local.get $base) (i32.const 4)))
                          (local.get $off) (local.get $len))
           (then (return (local.get $k))))
@@ -235,10 +235,10 @@
         (br $l)))
     (return (i32.const -1)))
 
-  ;; locals (let bindings) table at [157500 .. 158000), 8 bytes each (name_off, name_len)
+  ;; locals (let bindings) table at [177500 .. 178000), 8 bytes each (name_off, name_len)
   (func $local_add (param $off i32) (param $len i32)
     (local $base i32)
-    (local.set $base (i32.add (i32.const 157500) (i32.mul (global.get $nlocal) (i32.const 8))))
+    (local.set $base (i32.add (i32.const 177500) (i32.mul (global.get $nlocal) (i32.const 8))))
     (i32.store (local.get $base) (local.get $off))
     (i32.store (i32.add (local.get $base) (i32.const 4)) (local.get $len))
     (global.set $nlocal (i32.add (global.get $nlocal) (i32.const 1))))
@@ -254,7 +254,7 @@
     (block $done
       (loop $l
         (br_if $done (i32.lt_s (local.get $k) (i32.const 0)))
-        (local.set $base (i32.add (i32.const 157500) (i32.mul (local.get $k) (i32.const 8))))
+        (local.set $base (i32.add (i32.const 177500) (i32.mul (local.get $k) (i32.const 8))))
         (if (call $eqlit (i32.load (local.get $base)) (i32.load (i32.add (local.get $base) (i32.const 4)))
                          (local.get $off) (local.get $len))
           (then (return (local.get $k))))
@@ -319,7 +319,7 @@
     (block $done
       (loop $l
         (br_if $done (i32.ge_u (local.get $k) (global.get $nsym)))
-        (local.set $base (i32.add (i32.const 150000) (i32.mul (local.get $k) (i32.const 12))))
+        (local.set $base (i32.add (i32.const 170000) (i32.mul (local.get $k) (i32.const 12))))
         (if (call $eqlit (i32.load (local.get $base)) (i32.load (i32.add (local.get $base) (i32.const 4)))
                          (local.get $off) (local.get $len))
           (then (return (i32.load (i32.add (i32.const 526336) (i32.mul (local.get $k) (i32.const 4)))))))
@@ -329,7 +329,7 @@
   ;; 1 if the CURRENT token is the type `Float`, else 0 (Int / any other type). Peeks, does not consume.
   (func $type_code (result i32)
     (if (call $kw_is (global.get $tp) (i32.const 248230) (i32.const 5)) (then (return (i32.const 1))))   ;; Float
-    (if (call $kw_is (global.get $tp) (i32.const 160096) (i32.const 3)) (then (return (i32.const 2))))   ;; Dec
+    (if (call $kw_is (global.get $tp) (i32.const 180096) (i32.const 3)) (then (return (i32.const 2))))   ;; Dec
     (i32.const 0))
 
   ;; ---------- record / field registries (page 9) ----------
@@ -1169,7 +1169,7 @@
         ;; decop=DDIV(69). b==0 and overflow are runtime traps inside $dec_div, not
         ;; compile-time concerns here.
         (if (i32.and (i32.eq (call $tk (global.get $tp)) (i32.const 3))
-                     (call $eqlit (local.get $off) (local.get $len) (i32.const 160112) (i32.const 7)))
+                     (call $eqlit (local.get $off) (local.get $len) (i32.const 180112) (i32.const 7)))
           (then
             (call $adv)   ;; '('
             (call $c_expr) (local.set $tag (global.get $ety))
@@ -1209,11 +1209,11 @@
                 (then (call $emitw (i32.const 46)) (global.set $ety (i32.const 1)) (return)))
               (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248300) (i32.const 3))   ;; pow(x,y)
                 (then (call $emitw (i32.const 48)) (global.set $ety (i32.const 1)) (return)))
-              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 160016) (i32.const 3))   ;; bor(a,b) -> Int
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 180016) (i32.const 3))   ;; bor(a,b) -> Int
                 (then (call $emitw (i32.const 59)) (global.set $ety (i32.const 0)) (return)))
-              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 160048) (i32.const 3))   ;; shl(a,n) -> Int
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 180048) (i32.const 3))   ;; shl(a,n) -> Int
                 (then (call $emitw (i32.const 61)) (global.set $ety (i32.const 0)) (return)))
-              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 160064) (i32.const 3))   ;; shr(a,n) -> Int (logical/unsigned)
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 180064) (i32.const 3))   ;; shr(a,n) -> Int (logical/unsigned)
                 (then (call $emitw (i32.const 62)) (global.set $ety (i32.const 0)) (return)))))
             (if (i32.eq (local.get $len) (i32.const 4)) (then
               (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248270) (i32.const 4))   ;; sqrt(x)
@@ -1224,11 +1224,11 @@
                 (then (call $emitw (i32.const 51)) (global.set $ety (i32.const 0)) (global.set $expr_pushes (i32.const 0)) (return)))
               (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248350) (i32.const 4))   ;; alen(a) -> Int
                 (then (call $emitw (i32.const 52)) (global.set $ety (i32.const 0)) (return)))
-              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 160000) (i32.const 4))   ;; band(a,b) -> Int
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 180000) (i32.const 4))   ;; band(a,b) -> Int
                 (then (call $emitw (i32.const 58)) (global.set $ety (i32.const 0)) (return)))
-              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 160032) (i32.const 4))   ;; bxor(a,b) -> Int
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 180032) (i32.const 4))   ;; bxor(a,b) -> Int
                 (then (call $emitw (i32.const 60)) (global.set $ety (i32.const 0)) (return)))
-              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 160080) (i32.const 4))   ;; bnot(a) -> Int
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 180080) (i32.const 4))   ;; bnot(a) -> Int
                 (then (call $emitw (i32.const 63)) (global.set $ety (i32.const 0)) (return)))))
             (if (i32.eq (local.get $len) (i32.const 5)) (then
               (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248250) (i32.const 5))   ;; round(x): Float -> Int (nearest)
@@ -1257,14 +1257,14 @@
                 (then (call $emitw (i32.const 18)) (global.set $ety (i32.const 0)) (return)))   ;; INT2TEXT
               (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248120) (i32.const 11))   ;; text_concat(a,b)
                 (then (call $emitw (i32.const 17)) (global.set $ety (i32.const 0)) (return)))   ;; CONCAT
-              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 160128) (i32.const 11))   ;; dec_to_text(d) (D1): canonical decimal string
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 180128) (i32.const 11))   ;; dec_to_text(d) (D1): canonical decimal string
                 (then
                   (if (i32.eq (global.get $ety) (i32.const 1))
                     (then (call $err_add (i32.const 7) (local.get $off) (local.get $len)))
                     (else (if (i32.eqz (global.get $ety)) (then (call $emitw (i32.const 65))))))   ;; Int arg -> DFROMI (TOS)
                   (call $emitw (i32.const 70)) (global.set $ety (i32.const 0)) (return)))))        ;; D2TEXT -> Text
             (if (i32.eq (local.get $len) (i32.const 12)) (then
-              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 160144) (i32.const 12))   ;; dec_to_float(d) (D1): explicit, lossy Dec -> Float; no reverse float_to_dec
+              (if (call $eqlit (local.get $off) (local.get $len) (i32.const 180144) (i32.const 12))   ;; dec_to_float(d) (D1): explicit, lossy Dec -> Float; no reverse float_to_dec
                 (then
                   (if (i32.eq (global.get $ety) (i32.const 1))
                     (then (call $err_add (i32.const 7) (local.get $off) (local.get $len)))

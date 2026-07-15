@@ -36,6 +36,7 @@ const CONFORMANCE_LIST = [
   '../examples/finance/swap_rate.lm',
   '../mu/examples/arrays.lm',
   '../mu/examples/records.lm',
+  '../mu/examples/decimal.lm',
 ];
 
 // expected match floor: every program here must stay bit-identical or the harness exits 1.
@@ -51,6 +52,8 @@ const CONFORMANCE_LIST = [
 // compiler; every seed front-end feature now compiles bit-identically under lumenc.lm.
 // bump_greeks (finite-difference Greeks kernel) joined: 28/28.
 // swap_rate (par interest-rate swap kernel with discount factors) joined: 29/29.
+// decimal (D4: Dec end-to-end, literals/coercion/dec_div/dec_to_text/dec_to_float/overflow-
+// free happy-path kernel) joins with the self-hosted compiler's Dec front-end: 30/30.
 const EXPECTED_MATCH = [
   '../mu/examples/fib_print.lm',
   '../mu/examples/add.lm',
@@ -81,6 +84,7 @@ const EXPECTED_MATCH = [
   '../examples/finance/swap_rate.lm',
   '../mu/examples/arrays.lm',
   '../mu/examples/records.lm',
+  '../mu/examples/decimal.lm',
 ];
 
 async function main() {
@@ -109,11 +113,11 @@ async function main() {
   let lexCompileEntry = -1;
   const lexEntries = [];
   
-  for (let addr = 150000; addr < 157000; addr += 12) {
+  for (let addr = 170000; addr < 177000; addr += 12) {
     const name_off = memB.getInt32(addr, true);
     const name_len = memB.getInt32(addr + 4, true);
     const entry = memB.getInt32(addr + 8, true);
-    if (name_off >= 100000 && name_off < 150000 && name_len > 0) {
+    if (name_off >= 100000 && name_off < 170000 && name_len > 0) {
       const name = Buffer.from(u8B.slice(name_off, name_off + name_len)).toString('utf8');
       if (name === 'lex_compile') {
         lexCompileEntry = entry;
