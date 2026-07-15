@@ -204,6 +204,7 @@ regression; the Forge adds adversarial coverage. The full gate list run by `.git
 - `bootstrap_test.mjs`
 - `emitter_bootstrap_test.mjs`
 - `parity_corpus_test.mjs`
+- `selfcompile_diff.mjs`
 - `arm64_spike_check.mjs`
 - `state_eventlog_test.mjs`
 - `analytics_events_test.mjs`
