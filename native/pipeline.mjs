@@ -178,9 +178,17 @@ export async function optimizeIR(words, main) {
 // execute a raw IR word array directly, no recompile - the in-process JS interpreter, same as
 // the retired wasm path (handles hand-crafted/synthetic IR that has no "function shape", unlike
 // the emit+clang route, which needs real compiled programs - see native/optimize_diff.mjs).
-export async function runIR(words, main) {
+// `strings` (optional, default []) seeds the interpreter's compile-time string heap exactly the
+// way freshInstance()'s compile() and forge.mjs's runInterp() already do (interp.seedStrings(),
+// ir_interpreter.mjs), so Text literals/text_concat/int_to_text resolve correctly. Synthetic
+// hand-crafted IR (optimize_diff.mjs's chain/synthFold/etc arrays) has no text literals and is
+// unaffected by the default; real compiled programs MUST pass the strings sidecar returned
+// alongside their words/main (compileToIR/compileToIRNative) - optimizeIR's output IR keeps the
+// SAME literal pointers as its input, so the ORIGINAL strings sidecar stays valid post-optimize.
+export async function runIR(words, main, strings = []) {
   const interp = createInterpreter();
   interp.writeCode(Int32Array.from(words));
+  interp.seedStrings(strings);
   interp.set_fuel_max(4000000000n);
   interp.run(main);
   return interp.getOut();

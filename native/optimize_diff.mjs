@@ -2,7 +2,9 @@
 // Correctness (RULES rule 5): for every program, interpret(optimize(IR)) === interpret(IR),
 // byte-for-byte. The optimizer is enabled only when this holds. The measured "changed" count
 // is the justification (it must do something on programs with jump chains). Scalar/control/calls
-// subset (runIR executes raw IR without a heap-init pass).
+// subset only: every runIR() call below (SCALAR examples + the hand-crafted synthetic IR arrays)
+// is Text-free, so none needs the strings sidecar runIR(words, main, strings) now accepts (see
+// pipeline.mjs) - not a residual limitation of runIR itself, just this gate's fixture set.
 import fs from 'node:fs';
 import { createCompiler } from '../seed/compiler_core.mjs';
 import { compileToIR, optimizeIR, runIR } from './pipeline.mjs';

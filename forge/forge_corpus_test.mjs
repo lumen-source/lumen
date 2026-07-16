@@ -44,7 +44,7 @@ async function allDivergences(program) {
 
   try {
     const { words, main } = await optimizeIR(refInterp.words, refInterp.main);
-    const optOut = await runIR(words, main);
+    const optOut = await runIR(words, main, refInterp.strings);
     if (optOut !== refInterp.stdout) found.push(`OPT_DIFF: opt=${JSON.stringify(optOut)} ref=${JSON.stringify(refInterp.stdout)}`);
   } catch (e) {
     found.push(`HARNESS_ERROR(c): ${String(e.message || e)}`);

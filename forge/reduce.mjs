@@ -58,7 +58,7 @@ async function checkClass(program, cls, forceFault) {
   if (cls === 'OPT_DIFF') {
     try {
       const { words, main } = await optimizeIR(refInterp.words, refInterp.main);
-      const optOut = await runIR(words, main);
+      const optOut = await runIR(words, main, refInterp.strings);
       return {
         same: optOut !== refInterp.stdout,
         cleanCompile: true,

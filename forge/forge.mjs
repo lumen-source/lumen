@@ -57,7 +57,7 @@ async function runInterp(src) {
   let exit = 0;
   try { if (r.nerr === 0) interp.run(r.main); }
   catch (e) { exit = 1; }
-  return { stdout: interp.getOut(), exit, words: r.words, main: r.main };
+  return { stdout: interp.getOut(), exit, words: r.words, main: r.main, strings: r.strings };
 }
 
 // ---------- path b: SELFHOST-IR (R5: a second independent native compile - see header comment) ----------
@@ -124,7 +124,7 @@ async function main() {
     // c. OPT
     try {
       const { words: optWords, main: optMain } = await optimizeIR(refInterp.words, refInterp.main);
-      const optOut = await runIR(optWords, optMain);
+      const optOut = await runIR(optWords, optMain, refInterp.strings);
       if (optOut !== refInterp.stdout) {
         record(seed, 'OPT_DIFF', `stdout mismatch: opt=${JSON.stringify(optOut)} ref=${JSON.stringify(refInterp.stdout)}`, program);
       }
