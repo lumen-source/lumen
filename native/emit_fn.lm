@@ -785,7 +785,7 @@ fn main(c: Console) -> Unit {
 #include <signal.h>
 #include <unistd.h>
 static const unsigned char lm_trap_msg[19] = {108,117,109,101,110,58,32,109,101,109,111,114,121,32,116,114,97,112,10};
-static void lm_trap(int sig){ write(2, lm_trap_msg, 19); _exit(70); }
+static void lm_trap(int sig){ fflush(stdout); write(2, lm_trap_msg, 19); _exit(70); }
 __attribute__((constructor)) static void lm_install_traps(void){ signal(SIGBUS, lm_trap); signal(SIGSEGV, lm_trap); }
 ")
   if fuel_mode() == 1 {
@@ -793,7 +793,7 @@ __attribute__((constructor)) static void lm_install_traps(void){ signal(SIGBUS, 
     c.print("static int64_t LM_FUEL = 0;\n")
     c.print("static void lm_fuel_reset(void){ LM_FUEL = LM_FUEL_BUDGET; }\n")
     c.print("static const unsigned char lm_fuel_msg[19] = {108,117,109,101,110,58,32,111,117,116,32,111,102,32,102,117,101,108,10};\n")
-    c.print("static void lm_out_of_fuel(void){ write(2, lm_fuel_msg, 19); _exit(71); }\n")
+    c.print("static void lm_out_of_fuel(void){ fflush(stdout); write(2, lm_fuel_msg, 19); _exit(71); }\n")
   }
   c.print("static void pic(int64_t v){uint64_t u; int n; char b[24];
 if(v<0){putchar(45);u=0-(uint64_t)v;}else{u=(uint64_t)v;}
