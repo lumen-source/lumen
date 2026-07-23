@@ -28,7 +28,17 @@ fn main(c: Console) -> Unit {
 
 const SCALAR = [
   'fib_print', 'add', 'max', 'fact', 'locals', 'forward', 'mutual', 'compare', 'gcd', 'count', 'sum_loop',
-  'hello', 'greet', 'report', 'fizzbuzz', 'safe_div', 'propagate', 'bitwise', 'int_big'
+  'hello', 'greet', 'report', 'fizzbuzz', 'safe_div', 'propagate', 'bitwise', 'int_big', 'floats'
+];
+
+// Float-specific corpus programs living outside mu/examples: the two certified pricing kernels
+// (examples/finance/black_scholes.lm, examples/finance/implied_vol.lm) plus the scalar
+// black_scholes.lm oracle, all Float-heavy (arithmetic, comparisons, sqrt/abs/exp/ln/pow, and in
+// implied_vol's case a 50-iteration Newton-Raphson loop), read from their own relative paths.
+const FLOAT_PATHS = [
+  ['black_scholes', '../examples/black_scholes.lm'],
+  ['finance/black_scholes', '../examples/finance/black_scholes.lm'],
+  ['finance/implied_vol', '../examples/finance/implied_vol.lm'],
 ];
 
 const lumen = await createCompiler();
@@ -55,7 +65,18 @@ for (const name of SCALAR) {
   if (ok) pass++; else fail++;
 }
 
-const totalNormal = INLINE.length + SCALAR.length;
+// 2b. Run the Float-specific corpus programs (paths outside mu/examples)
+for (const [name, path] of FLOAT_PATHS) {
+  const src = fs.readFileSync(new URL(path, import.meta.url), 'utf8');
+  const ref = lumen.run(src);
+  if (!ref.ok) { console.log(`FAIL  ${name} (interpreter compile error)`); fail++; continue; }
+  const cand = await buildAndRunLlvm(src, '-O3');
+  const ok = cand.stdout === ref.stdout && cand.exit === 0;
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(9)} native=${JSON.stringify(cand.stdout)}  ref=${JSON.stringify(ref.stdout)}`);
+  if (ok) pass++; else fail++;
+}
+
+const totalNormal = INLINE.length + SCALAR.length + FLOAT_PATHS.length;
 console.log(`\n${pass}/${totalNormal} scaffold-subset programs translated by emit_llvm.lm are bit-identical to the interpreter (fail ${fail})`);
 
 // 3. Run the two trap-parity programs (Honesty rules)
