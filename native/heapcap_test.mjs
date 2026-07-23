@@ -8,7 +8,7 @@ type Box = | Boxed(Int)
 fn main(c: Console) -> Unit {
   var s = "1234"
   var i = 0
-  while 1 {
+  while true {
     s = text_concat(s, "12345678")
     let x = Boxed(0)
     c.print("iter ")

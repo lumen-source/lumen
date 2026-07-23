@@ -3,35 +3,21 @@
 # 177000/177500, FIXUPS 178000, TOKENS 299000, literal heap 488000) so a self-compile fits;
 # only CODE (211328) differs, because the seed's CODE_BASE holds this compiler's own IR.
 # (D4: SYMBOLS/PARAMS/LOCALS/FIXUPS shifted +20000 from the pre-Dec layout to widen SRC to
-# 70000 bytes -- lumenc.lm itself, now with Dec support, exceeds the old 50000-byte SRC cap
-# when it compiles itself.
-# GAP-A fix (native/selfcompile_diff.mjs): the earlier D4 pass shifted VARIANTS/PTYPES/LTYPES/
-# RETTYPES/FIELDS/RECTYPES/DIAG/TOKENS by +100000 (270000->370000 etc) to give CODE's growth
-# room, but the literal-heap start (set_hp's initial value in lex_compile) is baked into every
-# compiled program's own emitted IR as an absolute address (string-literal pointers are
-# compile-time-resolved constants, not relocatable offsets) and so MUST stay pinned at the
-# seed's own 488000 -- it cannot shift the way the other regions did. That pinned ceiling
-# capped TOKENS at [396000,488000) = 92000 bytes = 7666 tokens, silently below what a
-# real self-hosted compile needs (native/emit_fn.lm: 7903 tokens; native/emit_llvm.lm: 12604;
-# lumenc.lm compiling itself: 14420) -- tokens at index >=7666 were silently clobbered by the
-# literal-heap bump allocator (heap and TOKENS are different regions, but TOKENS's own upper
-# end had crept forward to overlap the pinned heap start) the moment the FIRST string literal
-# was emitted during parse. Lexing itself stayed correct (every token is written up front,
-# before any heap bump happens, so token COUNTS always matched the seed exactly); the
-# corruption only surfaced once parsing walked far enough into the file to re-read an
-# already-clobbered token, manifesting as a handful of parse-recovery diagnostics (E0001/E0004)
-# with garbage spans, never as a lex-level divergence.
-# Fix: CODE's own reserved room was 39668 words (158672 bytes) but self-compiling lumenc.lm
-# (the largest of the four toolchain sources) needs only 16503 -- CODE was over-provisioned by
-# more than 2x. Shrinking CODE's reserved room to 19668 words (78672 bytes, still +19% headroom
-# over the 16503 high-water mark) and repacking VARIANTS/PTYPES/LTYPES/RETTYPES/FIELDS/RECTYPES/
-# DIAG immediately after it (each kept at least as large as before; RECTYPES/DIAG, both
-# originally sized for far more entries than any of these files ever registers, are trimmed to
-# still-generous fixed sizes) reclaims enough of that slack to widen TOKENS to
-# [299000,488000) = 189000 bytes = 15750 tokens (+9% headroom over the 14420 high-water mark)
-# without moving the pinned heap start and without changing a single baked address in any
-# emitted program. See native_resident_test.mjs / native_fixpoint_test.mjs / selfhost_diff.mjs
-# SELF(lumenc.lm) for the self-compile bit-identity this must keep holding.
+# 70000 bytes -- lumenc.lm itself, with Dec support, exceeds the old 50000-byte SRC cap when
+# it compiles itself.)
+# GAP-A (native/selfcompile_diff.mjs): the literal-heap start is baked into every compiled
+# program's emitted IR as an absolute address, so it MUST stay pinned at the seed's 488000 --
+# it can't shift the way the other regions did. That pinned ceiling capped TOKENS at 92000
+# bytes (7666 tokens), below what real self-hosted compiles need (up to 14420 tokens for
+# lumenc.lm itself); tokens beyond 7666 were silently clobbered by the literal-heap bump
+# allocator once the first string literal was emitted, surfacing as garbage-span parse
+# diagnostics (E0001/E0004), never a lex-level divergence (lexing itself stayed correct).
+# Fix: CODE's reserved room was over-provisioned >2x (39668 words vs a 16503-word high-water
+# mark); shrinking it to 19668 words (+19% headroom) and repacking VARIANTS/PTYPES/LTYPES/
+# RETTYPES/FIELDS/RECTYPES/DIAG after it reclaims enough slack to widen TOKENS to 189000 bytes
+# (15750 tokens, +9% headroom) without moving the pinned heap start or any baked address.
+# See native_resident_test.mjs / native_fixpoint_test.mjs / selfhost_diff.mjs SELF(lumenc.lm)
+# for the self-compile bit-identity this must keep holding.
 fn SRC() -> Int { return 100000 }
 fn TOKENS() -> Int { return 299000 }
 fn SYMBOLS() -> Int { return 170000 }
@@ -325,6 +311,19 @@ fn is_kw_not(i: Int) -> Int {
   return is_str_not(ta(i), tb(i))
 }
 
+fn is_kw_true(i: Int) -> Int {
+  if tk(i) != 1 { return 0 }
+  let off = ta(i)
+  if tb(i) == 4 and load8(off) == 116 and load8(off+1) == 114 and load8(off+2) == 117 and load8(off+3) == 101 { return 1 }
+  return 0
+}
+fn is_kw_false(i: Int) -> Int {
+  if tk(i) != 1 { return 0 }
+  let off = ta(i)
+  if tb(i) == 5 and load8(off) == 102 and load8(off+1) == 97 and load8(off+2) == 108 and load8(off+3) == 115 and load8(off+4) == 101 { return 1 }
+  return 0
+}
+
 fn is_str_float_ty(off: Int, len: Int) -> Int {
   if len != 5 { return 0 }
   if load8(off + 0) != 70 { return 0 }
@@ -343,18 +342,14 @@ fn is_str_dec_ty(off: Int, len: Int) -> Int {
   return 1
 }
 
-# (D4) Single call-site for the Float/Dec type-tag decision, used everywhere a type
-# annotation is classified (record fields, fn params, fn return type). Originally each of
-# the three call sites ran is_str_float_ty and is_str_dec_ty back to back as two separate
-# top-level `if`s; empirically (selfhost_diff/native_resident's SELF fixpoint gate), having
-# BOTH of those checks repeated at more than one call site desynced the self-hosted
-# compiler's own compile of lumenc.lm from the seed's (a real, narrow self-hosting gap, not
-# a Dec-semantics bug -- every corpus program, including decimal.lm, stayed byte-identical
-# throughout). Routing every site through one shared helper removes the duplicated shape
-# and the fixpoint gate is green again; see native_resident_test.mjs/native_fixpoint_test.mjs.
+# (D4) Single call-site for the Float/Dec/Bool type-tag decision (record fields, fn params,
+# fn return type). Keep every site routed through this one helper: duplicating the checks
+# at more than one call site previously desynced the self-hosted compile from the seed's
+# (see native_resident_test.mjs/native_fixpoint_test.mjs).
 fn ty_tag(off: Int, len: Int) -> Int {
   if is_str_float_ty(off, len) == 1 { return 1 }
   if is_str_dec_ty(off, len) == 1 { return 2 }
+  if len == 4 and load8(off) == 66 and load8(off+1) == 111 and load8(off+2) == 111 and load8(off+3) == 108 { return 3 }
   return 0
 }
 
@@ -1513,6 +1508,8 @@ fn c_primary() -> Unit {
     adv()
     return ()
   }
+  if is_kw_true(get_tp()) == 1 { emitw(1) emitw(1) adv() set_etype(3) return () }
+  if is_kw_false(get_tp()) == 1 { emitw(1) emitw(0) adv() set_etype(3) return () }
   if k == 1 {
     let off = ta(get_tp())
     let length = tb(get_tp())
@@ -1667,7 +1664,7 @@ fn c_primary() -> Unit {
       set_etype(0)
       if is_str_int_to_text(off, length) == 1 { emitw(18)  return () }
       if is_str_text_concat(off, length) == 1 { emitw(17)  return () }
-      if is_str_text_eq(off, length) == 1 { emitw(28)  return () }
+      if is_str_text_eq(off, length) == 1 { emitw(28)  set_etype(3)  return () }
       if is_str_load8(off, length) == 1 { emitw(55)  return () }
       if is_str_store8(off, length) == 1 { emitw(56)  set_expr_pushes(0)  return () }
       if is_str_load32(off, length) == 1 { emitw(53)  return () }
@@ -1832,18 +1829,18 @@ fn emit_arith(lt: Int, intop: Int, fop: Int) -> Unit {
   set_etype(1)
 }
 
-# Comparisons: same coercion rule, but the result is always Int (0/1).
+# Comparisons: same coercion rule as emit_arith.
 fn emit_cmp(lt: Int, intop: Int, fop: Int) -> Unit {
   let rt = get_etype()
   if lt == 0 and rt == 0 {
     emitw(intop)
-    set_etype(0)
+    set_etype(3)
     return ()
   }
   if rt == 0 { emitw(30) }
   if lt == 0 { emitw(31) }
   emitw(fop)
-  set_etype(0)
+  set_etype(3)
 }
 
 # ---- Dec (D4): parallel to emit_arith/emit_cmp above, gated at each call site by "is
@@ -1877,10 +1874,10 @@ fn emit_dec_arith(lt: Int, decop: Int, opoff: Int, oplen: Int) -> Unit {
   set_etype(2)
 }
 
-# Unified entry point for '+' and '*' (and dec_div's own DDIV emission): routes to
-# emit_dec_arith when Dec is involved, else calls emit_arith exactly as before.
+# Unified entry point for '+' and '*': routes to emit_dec_arith when Dec is involved.
 fn emit_arith2(lt: Int, intop: Int, fop: Int, decop: Int, opoff: Int, oplen: Int) -> Unit {
   let rt = get_etype()
+  if lt == 3 or rt == 3 { err_add(9, opoff, oplen) emitw(3) set_etype(0) return () }
   if lt == 2 or rt == 2 {
     emit_dec_arith(lt, decop, opoff, oplen)
     return ()
@@ -1888,15 +1885,13 @@ fn emit_arith2(lt: Int, intop: Int, fop: Int, decop: Int, opoff: Int, oplen: Int
   emit_arith(lt, intop, fop)
 }
 
-# Dec-aware comparison: same Float-mix ban and Int-coercion shuffle as emit_dec_arith, but
-# Dec-Dec (once same-scaled) reuses the given INT comparison op directly -- the same-scale
-# invariant makes a raw i64 compare exact, so there are no separate Dec comparison opcodes.
+# Dec-aware comparison: same Float-mix ban and Int-coercion shuffle as emit_dec_arith.
 fn emit_dec_cmp(lt: Int, intop: Int, opoff: Int, oplen: Int) -> Unit {
   let rt = get_etype()
   if lt == 1 or rt == 1 {
     err_add(7, opoff, oplen)
     emitw(3)
-    set_etype(0)
+    set_etype(3)
     return ()
   }
   if rt == 0 { emitw(65) }
@@ -1909,11 +1904,17 @@ fn emit_dec_cmp(lt: Int, intop: Int, opoff: Int, oplen: Int) -> Unit {
     emitw(tmp)
   }
   emitw(intop)
-  set_etype(0)
+  set_etype(3)
 }
 
 fn emit_cmp2(lt: Int, intop: Int, fop: Int, opoff: Int, oplen: Int) -> Unit {
   let rt = get_etype()
+  if lt == 3 or rt == 3 {
+    if lt != 3 or rt != 3 or (intop != 19 and intop != 20) { err_add(9, opoff, oplen) }
+    if lt == 3 and rt == 3 { emitw(intop) } else { emitw(3) }
+    set_etype(3)
+    return ()
+  }
   if lt == 2 or rt == 2 {
     emit_dec_cmp(lt, intop, opoff, oplen)
     return ()
@@ -1921,12 +1922,11 @@ fn emit_cmp2(lt: Int, intop: Int, fop: Int, opoff: Int, oplen: Int) -> Unit {
   emit_cmp(lt, intop, fop)
 }
 
-# '/' on Dec: Float-mix is checked FIRST (the more fundamental error -- "1.5 / priceDec"
-# should say Float and Dec never mix, not send the user to dec_div with a Float argument
-# dec_div cannot accept either). Only once Float is ruled out does a Dec operand (bare or
-# Int-coerced) ban '/' outright (E0008; use dec_div). Neither operand Dec: unchanged.
+# '/' on Dec: Float-mix (E0007) is checked before the Dec-outright ban (E0008; use dec_div).
+# Bool never mixes into '/' either (E0009). Neither Bool nor Dec: unchanged.
 fn c_div_op(lt: Int, opoff: Int, oplen: Int) -> Unit {
   let rt = get_etype()
+  if lt == 3 or rt == 3 { err_add(9, opoff, oplen) emitw(3) set_etype(0) return () }
   if (lt == 1 or rt == 1) and (lt == 2 or rt == 2) {
     err_add(7, opoff, oplen)
     emitw(3)
@@ -1984,18 +1984,17 @@ fn c_cmp() -> Unit {
   if k == 25 { adv()  let lt = get_etype()  c_add()  emit_cmp2(lt, 23, 38, opoff, oplen) }
 }
 
+fn require_bool() -> Unit { if get_etype() != 3 { err_add(9, 0, 0) } }
+
 # Boolean operators, seed-identical shapes (loosest to tightest: or < and < not < cmp).
 # not X   ->  <X> PUSH 0 EQ                                       (normalizes to 0/1)
 # A and B ->  <A> JZ Lf <B> JMP Le  Lf: PUSH 0  Le:               (short-circuit; yields B)
 # A or B  ->  <A> JZ Lr PUSH 1 JMP Le  Lr: <B>  Le:               (short-circuit; yields 1 or B)
 fn c_not() -> Unit {
   if is_kw_not(get_tp()) == 1 {
-    adv()
-    c_not()
-    emitw(1)
-    emitw(0)
-    emitw(19)
-    set_etype(0)
+    adv()  c_not()  require_bool()
+    emitw(1) emitw(0) emitw(19)
+    set_etype(3)
     return ()
   }
   c_cmp()
@@ -2006,19 +2005,20 @@ fn c_and() -> Unit {
   var loop = 1
   while loop == 1 {
     if is_kw_and(get_tp()) == 1 {
+      require_bool()
       adv()
       emitw(6)
       let ja = get_emit()
       emitw(0)
       c_not()
+      require_bool()
       emitw(7)
       let jb = get_emit()
       emitw(0)
       patch(ja, get_emit())
-      emitw(1)
-      emitw(0)
+      emitw(1) emitw(0)
       patch(jb, get_emit())
-      set_etype(0)
+      set_etype(3)
     } else {
       loop = 0
     }
@@ -2030,19 +2030,20 @@ fn c_or() -> Unit {
   var loop = 1
   while loop == 1 {
     if is_kw_or(get_tp()) == 1 {
+      require_bool()
       adv()
       emitw(6)
       let ja = get_emit()
       emitw(0)
-      emitw(1)
-      emitw(1)
+      emitw(1) emitw(1)
       emitw(7)
       let jb = get_emit()
       emitw(0)
       patch(ja, get_emit())
       c_and()
+      require_bool()
       patch(jb, get_emit())
-      set_etype(0)
+      set_etype(3)
     } else {
       loop = 0
     }
@@ -2229,7 +2230,7 @@ fn c_match() -> Unit {
 
 fn c_if() -> Unit {
   adv()
-  c_expr()
+  c_expr()  require_bool()
   emitw(6)
   let jz = get_emit()
   emitw(0)
@@ -2287,7 +2288,7 @@ fn c_assign() -> Unit {
 fn c_while() -> Unit {
   adv()
   let cond_pc = get_emit()
-  c_expr()
+  c_expr()  require_bool()
   emitw(6)
   let jz = get_emit()
   emitw(0)

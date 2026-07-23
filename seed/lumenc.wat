@@ -81,6 +81,10 @@
   (data (i32.const 248370) "store32")
   (data (i32.const 248380) "load8")
   (data (i32.const 248390) "store8")
+  ;; Bool (B1): distinct type, not an Int alias. true/false literals + the `Bool` type name.
+  (data (i32.const 248400) "true")
+  (data (i32.const 248410) "false")
+  (data (i32.const 248420) "Bool")
   ;; bitwise builtin names. The keyword region [248000..248400] is full and abuts the runtime
   ;; nvariant table at 248400, so these live in the free gap [178000..248000) (see memory map);
   ;; $eqlit compares source tokens against these bytes at any address.
@@ -341,6 +345,7 @@
   (func $type_code (result i32)
     (if (call $kw_is (global.get $tp) (i32.const 248230) (i32.const 5)) (then (return (i32.const 1))))   ;; Float
     (if (call $kw_is (global.get $tp) (i32.const 180096) (i32.const 3)) (then (return (i32.const 2))))   ;; Dec
+    (if (call $kw_is (global.get $tp) (i32.const 248420) (i32.const 4)) (then (return (i32.const 3))))   ;; Bool (B1)
     (i32.const 0))
 
   ;; ---------- record / field registries (page 9) ----------
@@ -986,7 +991,9 @@
       (else
         (call $emitw (local.get $intop))
         (global.set $ety (i32.const 0)))))
-  ;; Same coercion, for a comparison: result is always Int (0/1).
+  ;; Same coercion, for a comparison: result is a truth value at runtime (0/1) but its
+  ;; compile-time type is Bool (B1: ety=3), not Int, so it cannot silently flow back into
+  ;; arithmetic or another Int slot without an explicit path through the language.
   (func $emit_cmp (param $tl i32) (param $tr i32) (param $intop i32) (param $floatop i32)
     (if (i32.or (i32.eq (local.get $tl) (i32.const 1)) (i32.eq (local.get $tr) (i32.const 1)))
       (then
@@ -994,7 +1001,7 @@
         (if (i32.eqz (local.get $tl)) (then (call $emitw (i32.const 31))))
         (call $emitw (local.get $floatop)))
       (else (call $emitw (local.get $intop))))
-    (global.set $ety (i32.const 0)))
+    (global.set $ety (i32.const 3)))
 
   ;; ---------- Dec (D1): coercion + dispatch for +, -, *, and comparisons ----------
   ;; Design note: rather than folding Dec into $emit_arith/$emit_cmp above (risking the
@@ -1037,6 +1044,13 @@
   ;; else calls $emit_arith exactly as before (zero change to the Int/Float path). Keeps
   ;; each call site in $c_add/$c_mul a near-mechanical addition of two params.
   (func $emit_arith2 (param $tl i32) (param $tr i32) (param $intop i32) (param $floatop i32) (param $decop i32) (param $opoff i32) (param $oplen i32)
+    ;; Bool (B1): never mixes into arithmetic (E0009), same guard shape as the Float/Dec ban.
+    (if (i32.or (i32.eq (local.get $tl) (i32.const 3)) (i32.eq (local.get $tr) (i32.const 3)))
+      (then
+        (call $err_add (i32.const 9) (local.get $opoff) (local.get $oplen))
+        (call $emitw (i32.const 3))
+        (global.set $ety (i32.const 0))
+        (return)))
     (if (i32.or (i32.eq (local.get $tl) (i32.const 2)) (i32.eq (local.get $tr) (i32.const 2)))
       (then (call $emit_dec_arith (local.get $tl) (local.get $tr) (local.get $decop) (local.get $opoff) (local.get $oplen)) (return)))
     (call $emit_arith (local.get $tl) (local.get $tr) (local.get $intop) (local.get $floatop)))
@@ -1060,8 +1074,25 @@
         (call $emitw (i32.const 65))
         (call $emitw (i32.const 2)) (call $emitw (local.get $tmp))))
     (call $emitw (local.get $intop))
-    (global.set $ety (i32.const 0)))
+    (global.set $ety (i32.const 3)))
+  ;; Bool (B1): `==`/`!=` between two Bools is meaningful and allowed (intop 19=EQ, 20=NE);
+  ;; every other case with a Bool operand (ordering comparisons, or mixing with
+  ;; Int/Float/Dec) is a type error (E0009). Comparisons always produce Bool (ety=3),
+  ;; including the Dec/Float paths below, so `if`/`while`/`and`/`or`/`not` can require it.
   (func $emit_cmp2 (param $tl i32) (param $tr i32) (param $intop i32) (param $floatop i32) (param $opoff i32) (param $oplen i32)
+    (if (i32.and (i32.eq (local.get $tl) (i32.const 3)) (i32.eq (local.get $tr) (i32.const 3)))
+      (then
+        (if (i32.eqz (i32.or (i32.eq (local.get $intop) (i32.const 19)) (i32.eq (local.get $intop) (i32.const 20))))
+          (then (call $err_add (i32.const 9) (local.get $opoff) (local.get $oplen))))
+        (call $emitw (local.get $intop))
+        (global.set $ety (i32.const 3))
+        (return)))
+    (if (i32.or (i32.eq (local.get $tl) (i32.const 3)) (i32.eq (local.get $tr) (i32.const 3)))
+      (then
+        (call $err_add (i32.const 9) (local.get $opoff) (local.get $oplen))
+        (call $emitw (i32.const 3))
+        (global.set $ety (i32.const 3))
+        (return)))
     (if (i32.or (i32.eq (local.get $tl) (i32.const 2)) (i32.eq (local.get $tr) (i32.const 2)))
       (then (call $emit_dec_cmp (local.get $tl) (local.get $tr) (local.get $intop) (local.get $opoff) (local.get $oplen)) (return)))
     (call $emit_cmp (local.get $tl) (local.get $tr) (local.get $intop) (local.get $floatop)))
@@ -1073,6 +1104,10 @@
   (func $c_div_op (param $tl i32) (param $opoff i32) (param $oplen i32)
     (local $tr i32)
     (local.set $tr (global.get $ety))
+    (if (i32.or (i32.eq (local.get $tl) (i32.const 3)) (i32.eq (local.get $tr) (i32.const 3)))
+      (then
+        (call $err_add (i32.const 9) (local.get $opoff) (local.get $oplen))
+        (call $emitw (i32.const 3)) (global.set $ety (i32.const 0)) (return)))
     (if (i32.and (i32.or (i32.eq (local.get $tl) (i32.const 1)) (i32.eq (local.get $tr) (i32.const 1)))
                  (i32.or (i32.eq (local.get $tl) (i32.const 2)) (i32.eq (local.get $tr) (i32.const 2))))
       (then
@@ -1143,6 +1178,22 @@
         (call $emitw (i32.const 15))   ;; MKTEXT
         (call $emitw (call $mktext_lit (call $ta (global.get $tp)) (call $tb (global.get $tp))))
         (global.set $ety (i32.const 0))
+        (call $adv) (return)))
+    ;; Bool (B1) literals: true/false are keywords, not plain identifiers, and must be
+    ;; matched here (via kw_is) before the generic IDENT branch would mistake them for an
+    ;; unbound variable lookup. Runtime representation is the same i64 0/1 an Int comparison
+    ;; already produces (PUSH 1 / PUSH 0); what's new is $ety = 3 (Bool), which the checks
+    ;; added to $emit_arith2/$emit_cmp2/$c_div_op/$c_not/$c_and/$c_or/$c_if/$c_while below
+    ;; use to reject silent Int<->Bool mixing.
+    (if (call $kw_is (global.get $tp) (i32.const 248400) (i32.const 4))   ;; 'true'
+      (then
+        (call $emitw (i32.const 1)) (call $emitw (i32.const 1))
+        (global.set $ety (i32.const 3))
+        (call $adv) (return)))
+    (if (call $kw_is (global.get $tp) (i32.const 248410) (i32.const 5))   ;; 'false'
+      (then
+        (call $emitw (i32.const 1)) (call $emitw (i32.const 0))
+        (global.set $ety (i32.const 3))
         (call $adv) (return)))
     (if (i32.and (i32.eq (call $tk (global.get $tp)) (i32.const 3))
                  (i32.eq (call $tk (i32.add (global.get $tp) (i32.const 1))) (i32.const 4)))
@@ -1310,7 +1361,7 @@
               (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248370) (i32.const 7))   ;; store32(addr,val) -> Unit
                 (then (call $emitw (i32.const 54)) (global.set $ety (i32.const 0)) (global.set $expr_pushes (i32.const 0)) (return)))
               (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248170) (i32.const 7))   ;; text_eq(a,b)
-                (then (call $emitw (i32.const 28)) (global.set $ety (i32.const 0)) (return)))))
+                (then (call $emitw (i32.const 28)) (global.set $ety (i32.const 3)) (return)))))   ;; Bool (B1): a predicate
             (if (i32.eq (local.get $len) (i32.const 8)) (then
               (if (call $eqlit (local.get $off) (local.get $len) (i32.const 248260) (i32.const 8))   ;; to_float(n): Int -> Float
                 (then (call $emitw (i32.const 30)) (global.set $ety (i32.const 1)) (return)))))
@@ -1444,52 +1495,74 @@
     (if (i32.eq (call $tk (global.get $tp)) (i32.const 24)) (then (call $adv) (call $c_add) (call $emit_cmp2 (local.get $tl) (global.get $ety) (i32.const 22) (i32.const 39) (local.get $opoff) (local.get $oplen)) (return)))   ;; >=
     (if (i32.eq (call $tk (global.get $tp)) (i32.const 25)) (then (call $adv) (call $c_add) (call $emit_cmp2 (local.get $tl) (global.get $ety) (i32.const 23) (i32.const 38) (local.get $opoff) (local.get $oplen)))))           ;; >
 
+  ;; require the just-compiled expression's $ety to be Bool (3); else E0009, anchored on
+  ;; [off,len) (the operator token, same anchoring convention as the Dec/Float bans above).
+  (func $require_bool (param $off i32) (param $len i32)
+    (if (i32.ne (global.get $ety) (i32.const 3))
+      (then (call $err_add (i32.const 9) (local.get $off) (local.get $len)))))
+
   ;; logical 'not' (prefix): not x  ==  (x == 0).  Binds looser than a comparison
   ;; (its operand is a full comparison, so `not a == b` is `not (a == b)`) and
   ;; tighter than 'and'/'or' (it sits just below them in the precedence chain).
   ;; `not not x` is supported via the recursive operand. No `not` -> plain comparison.
+  ;; Bool (B1): the operand must itself be Bool (E0009 otherwise, e.g. `not 5` is now a
+  ;; diagnostic instead of a silent `5 == 0`); the result is always Bool.
   (func $c_not
+    (local $koff i32) (local $klen i32)
     (if (call $kw_is (global.get $tp) (i32.const 248220) (i32.const 3))   ;; 'not'
       (then
+        (local.set $koff (call $ta (global.get $tp))) (local.set $klen (call $tb (global.get $tp)))
         (call $adv)
         (call $c_not)                                                     ;; operand (recurses for `not not`)
+        (call $require_bool (local.get $koff) (local.get $klen))
         (call $emitw (i32.const 1)) (call $emitw (i32.const 0))           ;; PUSH 0
-        (call $emitw (i32.const 19)))                                     ;; EQ -> (operand == 0) = logical negation
+        (call $emitw (i32.const 19))                                      ;; EQ -> (operand == 0) = logical negation
+        (global.set $ety (i32.const 3)))
       (else (call $c_cmp))))
 
   ;; logical 'and' (short-circuit): a and b  ==  if a is false, 0, else b
+  ;; Bool (B1): both operands must be Bool (E0009 otherwise); result is Bool.
   (func $c_and
-    (local $jz i32) (local $jmp i32)
+    (local $jz i32) (local $jmp i32) (local $koff i32) (local $klen i32)
     (call $c_not)
     (block $ae
       (loop $al
         (if (call $kw_is (global.get $tp) (i32.const 248200) (i32.const 3))   ;; 'and'
           (then
+            (call $require_bool (call $ta (global.get $tp)) (call $tb (global.get $tp)))
+            (local.set $koff (call $ta (global.get $tp))) (local.set $klen (call $tb (global.get $tp)))
             (call $adv)
             (call $emitw (i32.const 6)) (local.set $jz (global.get $emit)) (call $emitw (i32.const 0))   ;; JZ -> false (pops lhs)
             (call $c_not)                                                     ;; rhs is the result when lhs is true
+            (call $require_bool (local.get $koff) (local.get $klen))
             (call $emitw (i32.const 7)) (local.set $jmp (global.get $emit)) (call $emitw (i32.const 0))  ;; JMP -> end
             (call $patch (local.get $jz) (global.get $emit))
             (call $emitw (i32.const 1)) (call $emitw (i32.const 0))            ;; false: PUSH 0
             (call $patch (local.get $jmp) (global.get $emit))
+            (global.set $ety (i32.const 3))
             (br $al)))
         (br $ae))))
 
   ;; logical 'or' (short-circuit): a or b  ==  if a is true, 1, else b
+  ;; Bool (B1): both operands must be Bool (E0009 otherwise); result is Bool.
   (func $c_or
-    (local $jz i32) (local $jmp i32)
+    (local $jz i32) (local $jmp i32) (local $koff i32) (local $klen i32)
     (call $c_and)
     (block $oe
       (loop $ol
         (if (call $kw_is (global.get $tp) (i32.const 248210) (i32.const 2))   ;; 'or'
           (then
+            (call $require_bool (call $ta (global.get $tp)) (call $tb (global.get $tp)))
+            (local.set $koff (call $ta (global.get $tp))) (local.set $klen (call $tb (global.get $tp)))
             (call $adv)
             (call $emitw (i32.const 6)) (local.set $jz (global.get $emit)) (call $emitw (i32.const 0))   ;; JZ -> eval rhs (pops lhs)
             (call $emitw (i32.const 1)) (call $emitw (i32.const 1))            ;; lhs true: PUSH 1
             (call $emitw (i32.const 7)) (local.set $jmp (global.get $emit)) (call $emitw (i32.const 0))  ;; JMP -> end
             (call $patch (local.get $jz) (global.get $emit))
             (call $c_and)                                                     ;; rhs is the result when lhs is false
+            (call $require_bool (local.get $koff) (local.get $klen))
             (call $patch (local.get $jmp) (global.get $emit))
+            (global.set $ety (i32.const 3))
             (br $ol)))
         (br $oe))))
 
@@ -1617,9 +1690,11 @@
     (if (i32.eq (call $tk (global.get $tp)) (i32.const 6)) (then (call $adv))))   ;; consume '}'
 
   (func $c_if
-    (local $jz i32) (local $jmp i32)
+    (local $jz i32) (local $jmp i32) (local $koff i32) (local $klen i32)
+    (local.set $koff (call $ta (global.get $tp))) (local.set $klen (call $tb (global.get $tp)))
     (call $adv)            ;; 'if'
     (call $c_expr)         ;; condition
+    (call $require_bool (local.get $koff) (local.get $klen))   ;; Bool (B1): `if <Int>` is now E0009, not a silent truthiness test
     (call $emitw (i32.const 6))                ;; JZ
     (local.set $jz (global.get $emit)) (call $emitw (i32.const 0))
     (call $c_block)        ;; then
@@ -1671,10 +1746,12 @@
     (call $emitw (local.get $slot)))
 
   (func $c_while
-    (local $jz i32) (local $cond_pc i32)
+    (local $jz i32) (local $cond_pc i32) (local $koff i32) (local $klen i32)
+    (local.set $koff (call $ta (global.get $tp))) (local.set $klen (call $tb (global.get $tp)))
     (call $adv)            ;; 'while'
     (local.set $cond_pc (global.get $emit))
     (call $c_expr)         ;; condition
+    (call $require_bool (local.get $koff) (local.get $klen))   ;; Bool (B1): `while <Int>` is now E0009
     (call $emitw (i32.const 6))                ;; JZ
     (local.set $jz (global.get $emit)) (call $emitw (i32.const 0))
     (call $c_block)        ;; body

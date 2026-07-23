@@ -41,7 +41,7 @@ Functions may be defined in **any order**: forward references and mutual recursi
 - **Records** (user-defined): `type Point = { x: Float, y: Float }` creates a struct. Construct with `Point { x: 1.0, y: 2.0 }` and access fields with dot notation (`p.x`).
 - **Float arrays** (heap-backed): `array(n)` allocates an array of `n` floats; `aget(arr, i)` reads index `i`; `aset(arr, i, v)` writes; `alen(arr)` returns the length.
 
-There is no `Bool` type; a comparison (`a < b`) produces a truth value that `if` and logical operators consume directly.
+- `Bool` (B1): a distinct type, not an Int alias. Literals: `true`, `false`. A comparison (`a < b`, `a == b`, ...) produces a `Bool`, which `if`, `while`, `and`, `or`, and `not` require. `Bool` never implicitly or explicitly coerces to/from `Int` (or `Float`/`Dec`): `if x` where `x` is an `Int` is a compile-time error (E0009), not a truthiness test. `==`/`!=` between two `Bool` values is allowed; ordering comparisons (`<`, `<=`, `>`, `>=`) and arithmetic (`+`, `-`, `*`, `/`) on `Bool` are not.
 
 ## Dec: exact decimal arithmetic
 
