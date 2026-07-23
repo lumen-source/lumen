@@ -197,13 +197,26 @@ eq('and short-circuits past a trapping rhs', runMain('c.print_int(1 == 2 and 1 /
 eq('compound condition in if', runFull('fn in_range(x: Int, lo: Int, hi: Int) -> Int {\n  if x >= lo and x <= hi { return 1 }\n  return 0\n}\nfn main(c: Console) -> Unit {\n  c.print_int(in_range(5, 1, 10))\n  c.print_int(in_range(99, 1, 10))\n}\n'), '1\n0\n');
 
 // ---- logical negation: not (prefix; binds looser than comparison, tighter than and/or) ----
-eq('not nonzero',  runMain('c.print_int(not 5)'), '0\n');
-eq('not zero',     runMain('c.print_int(not 0)'), '1\n');
+eq('not nonzero (Bool operand)',  runMain('c.print_int(not (5 != 0))'), '0\n');
+eq('not zero (Bool operand)',     runMain('c.print_int(not (0 != 0))'), '1\n');
 eq('not over comparison', runMain('c.print_int(not 1 == 1)'), '0\n');   // not (1 == 1)
 eq('not makes false true', runMain('c.print_int(not 1 == 2)'), '1\n');  // not (1 == 2)
-eq('double not normalizes', runMain('c.print_int(not not 5)'), '1\n');
-eq('not in and',   runMain('c.print_int(1 == 1 and not 0)'), '1\n');
+eq('double not normalizes', runMain('c.print_int(not not (5 != 0))'), '1\n');
+eq('not in and',   runMain('c.print_int(1 == 1 and not (0 != 0))'), '1\n');
 eq('not grouped',  runMain('c.print_int(not (1 == 2 or 1 == 3))'), '1\n');
+
+// ---- Bool (B1): distinct type, never silently coercible to/from Int (E0009) ----
+eq('E0009 not on a raw Int', codesOf('fn main(c: Console) -> Unit {\n  c.print_int(not 5)\n}\n')[0], 'E0009');
+eq('E0009 and on raw Ints', codesOf('fn main(c: Console) -> Unit {\n  c.print_int(1 and 0)\n}\n')[0], 'E0009');
+eq('E0009 or on raw Ints', codesOf('fn main(c: Console) -> Unit {\n  c.print_int(1 or 0)\n}\n')[0], 'E0009');
+eq('E0009 if condition is a raw Int', codesOf('fn main(c: Console) -> Unit {\n  let x = 1\n  if x { c.print_int(1) }\n}\n')[0], 'E0009');
+eq('E0009 while condition is a raw Int', codesOf('fn main(c: Console) -> Unit {\n  var x = 1\n  while x { x = 0 }\n}\n')[0], 'E0009');
+eq('E0009 Bool used in +', codesOf('fn main(c: Console) -> Unit {\n  c.print_int((1 == 1) + 1)\n}\n')[0], 'E0009:+');
+eq('E0009 Bool ordering-compared to Int', codesOf('fn main(c: Console) -> Unit {\n  c.print_int((1 == 1) < 2)\n}\n')[0], 'E0009');
+eq('clean Bool program emits no diagnostics', codesOf('fn main(c: Console) -> Unit {\n  let flag = 1 == 1\n  if flag and not (1 == 2) { c.print_int(1) }\n}\n').length, 0);
+eq('true/false literals', runMain('c.print_int(true)\n  c.print_int(false)'), '1\n0\n');
+eq('Bool == Bool allowed', runMain('c.print_int(true == true)\n  c.print_int(true == false)'), '1\n0\n');
+eq('fn returning Bool', runFull('fn is_pos(x: Int) -> Bool {\n  return x > 0\n}\nfn main(c: Console) -> Unit {\n  c.print_int(is_pos(5))\n  c.print_int(is_pos(-5))\n}\n'), '1\n0\n');
 
 // ---- locals: let, multiple lets, var reassignment ----
 eq('let binding', runMain('let x = 5\n  c.print_int(x + 1)'), '6\n');
@@ -377,7 +390,7 @@ fn main(c: Console) -> Unit {
 }
 
 // ---- unit expression support ----
-eq('early return from Unit function', runFull('fn f(x: Int, c: Console) -> Unit {\n  if x {\n    return ()\n  }\n  c.print_int(7)\n}\nfn main(c: Console) -> Unit {\n  f(1, c)\n  f(0, c)\n}\n'), '7\n');
+eq('early return from Unit function', runFull('fn f(x: Int, c: Console) -> Unit {\n  if x != 0 {\n    return ()\n  }\n  c.print_int(7)\n}\nfn main(c: Console) -> Unit {\n  f(1, c)\n  f(0, c)\n}\n'), '7\n');
 // R5 KNOWN GAP (same class): lumenc.lm's type checker does not yet reject a bare `return ()` /
 // `let x = ()` in a non-Unit-returning function the way the wasm seed's E0003:() does - verified
 // nerr=0 on the native compiler for both. Tracked as a lumenc.lm follow-up.

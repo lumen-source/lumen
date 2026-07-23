@@ -9,7 +9,7 @@ const INLINE = [
 fn twice(x: Int) -> Int { return inc(inc(x)) }
 fn main(c: Console) -> Unit { c.print_int(twice(40)) }`],
   ['branch', `fn pick(x: Int) -> Int {
-  if x { return 7 }
+  if x != 0 { return 7 }
   return 9
 }
 fn main(c: Console) -> Unit {

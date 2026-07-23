@@ -83,7 +83,7 @@ fn set_sty(k: Int, t: Int) -> Unit { store8(2400000 + k, t) }
 # normalized: 2 collapses to 0. Without this, a Dec-typed GETARG or CALL-return would tag
 # its stack slot sty=2, and sl_int (which checks `t == 0` specifically, not `t != 1`) would
 # then read the WRONG C variable (d2l(sd<k>) instead of s<k>) for that slot's value.
-fn norm_sty(t: Int) -> Int { if t == 2 { return 0 } return t }
+fn norm_sty(t: Int) -> Int { if t == 2 { return 0 } if t == 3 { return 0 } return t }
 
 fn slot_int(c: Console, k: Int) -> Unit {
   if k < 0 { c.print("s0") }
