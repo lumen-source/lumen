@@ -615,8 +615,11 @@ async function runServer(cfgPath) {
   const origin = cfg.proxyPass ? new URL(cfg.proxyPass) : null;
   const port = process.env.PORT ? Number(process.env.PORT) : cfg.port;   // Cloud Run injects PORT
   const { bin, bodyBlock } = cfg.handlersSrc
-    ? await buildNativeServeHandlers(cfg.routes, !!origin, cfg.handlersSrc)
-    : await buildNativeServe(cfg.routes, !!origin);
+    ? await buildNativeServeHandlers(cfg.routes, !!origin || cfg.hostFiles.size > 0, cfg.handlersSrc)
+    : await buildNativeServe(cfg.routes, !!origin || cfg.hostFiles.size > 0);
+  // proxy-mode flag doubles as yield-unmatched-to-host: with host-served files declared, the
+  // kernel must hand unmatched requests back (empty response) so the host can serve the file
+  // or produce the 404 itself; without either, the kernel's own in-kernel 404 stays in force.
   const serve = makeServer(bin, bodyBlock);
 
   const server = net.createServer((socket) => {
