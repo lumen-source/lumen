@@ -80,6 +80,7 @@ jobs:
           node fixpoint_emit_test.mjs
           node native_compile_test.mjs
           node native_pipeline_test.mjs
+          node build_cache_test.mjs
           node native_fixpoint_test.mjs
           node bootstrap_test.mjs
           node emitter_bootstrap_test.mjs

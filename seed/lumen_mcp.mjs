@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import { createCompiler, oplen } from './compiler_core.mjs';
 import { buildDiagnostics, applyFixes, fixableCount, explain } from './diagnostics.mjs';
 import { cacheKey, CACHE_DIR_PATH } from './cache.mjs';
-import { compileToIRAuto, optimizeIR, emitC, emitLlvm, buildAndRunFn } from '../native/pipeline.mjs';
+import { compileToIRAuto, optimizeIR, emitC, emitLlvm, buildAndRunFn, buildAndRunFnResident } from '../native/pipeline.mjs';
 import { checkAuto } from './native_check.mjs';
 import { compileToIRNative, compileToIRNativeRaw } from '../native/native_compile.mjs';
 import { createInterpreter } from '../native/ir_interpreter.mjs';
@@ -366,13 +366,27 @@ async function emitLlvmFromSource(src) {
 // Compile and run through the self-compiled native toolchain: IR -> optimizer -> emit_fn.lm C ->
 // clang -O2 -> execute. The compiler, optimizer, and emitter are all Lumen programs; the same
 // toolchain rebuilds itself bit-identically (native/native_fixpoint_test.mjs gates it in CI).
+//
+// Prefers the resident-compiler + build-cache path (buildAndRunFnResident, pipeline.mjs): an MCP
+// server is a long-running process serving many tool calls over its lifetime, so a warm resident
+// compiler (pays process-spawn cost once, not per call) and a content-addressed build cache (skip
+// `clang` entirely on a repeat of the same emitted C - the dominant cost for these small kernels,
+// see build_cache.mjs's header) are both genuine, real speedups here. Falls back to the plain
+// buildAndRunFn (fresh compile, no resident reuse, no cache) on ANY error from the resident path -
+// this must never make lumen_run_native less reliable than it was, only faster when healthy.
 async function runNativeFromSource(src) {
   const c = await checkAuto(lumen, src);
   if (!c.ok) return { ok: false, diagnostics: buildDiagnostics(c.rawDiags, src) };
   const t0 = performance.now();
-  const r = await buildAndRunFn(src, '-O2');
+  let r, usedResident = true;
+  try {
+    r = await buildAndRunFnResident(src, '-O2');
+  } catch {
+    usedResident = false;
+    r = await buildAndRunFn(src, '-O2');
+  }
   const totalMs = performance.now() - t0;
-  return { ok: r.exit === 0, stdout: r.stdout, exit: r.exit, totalMs: Math.round(totalMs * 10) / 10 };
+  return { ok: r.exit === 0, stdout: r.stdout, exit: r.exit, totalMs: Math.round(totalMs * 10) / 10, usedResident, cacheHit: !!r.cacheHit };
 }
 
 const TOOLS = [
@@ -400,7 +414,7 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { source: { type: 'string' } }, required: ['source'] } },
   { name: 'lumen_emit_c', description: 'The native C source the Lumen C-emitter (emit_fn.lm) produces for this program. The emitter is itself a Lumen program run on the seed.',
     inputSchema: { type: 'object', properties: { source: { type: 'string' } }, required: ['source'] } },
-  { name: 'lumen_run_native', description: 'Compile and run Lumen source through the SELF-COMPILED native toolchain: IR -> Lumen optimizer -> emit_fn.lm C -> clang -O2 -> execute the binary. Returns stdout, exit code, and total wall ms; diagnostics if it does not compile. The compiler, optimizer, and emitter are all Lumen programs, and the same toolchain rebuilds itself bit-identically (the native fixpoint, gated in CI).',
+  { name: 'lumen_run_native', description: 'Compile and run Lumen source through the SELF-COMPILED native toolchain: IR -> Lumen optimizer -> emit_fn.lm C -> clang -O2 -> execute the binary. Returns stdout, exit code, total wall ms, usedResident (true when the warm resident compiler served the IR-compile step, falling back automatically on any error), and cacheHit (true when the emitted C had already been built before, so the `clang` invocation itself was skipped - the dominant cost for these small kernels, and the real speedup for repeat calls on the same or lightly-edited source). Diagnostics if it does not compile. The compiler, optimizer, and emitter are all Lumen programs, and the same toolchain rebuilds itself bit-identically (the native fixpoint, gated in CI).',
     inputSchema: { type: 'object', properties: { source: { type: 'string', description: 'Lumen (.lm) source' } }, required: ['source'] } },
   { name: 'lumen_emit_llvm', description: 'The LLVM IR the Lumen LLVM-emitter (emit_llvm.lm) produces for this program. The emitter is itself a Lumen program run on the seed.',
     inputSchema: { type: 'object', properties: { source: { type: 'string' } }, required: ['source'] } },

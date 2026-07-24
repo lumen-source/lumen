@@ -136,6 +136,14 @@ bootstrap-C trio + `native/ir_interpreter.mjs` (see "The seed" above); the wasm-
 fixpoint originally gated against is preserved at the `wat-genesis` history tag. See
 `docs/NATIVE_BACKEND_PLAN.md` for history.
 
+For `pipeline.mjs`'s `buildAndRunFnResident` (the resident-compile path `lumen_run_native` uses),
+the resident IR-compile step measured near-zero end-to-end speedup on its own, because `clang`'s
+own compile-and-link, not the IR-compile step, dominates wall time for small kernels. The real
+lever is `native/build_cache.mjs`: a content-addressed cache (emitted C + opt flag + clang
+identity) that skips the `clang` invocation entirely on a repeat of the same program, measured
+~8x faster on a hit than that program's own first (miss) call. See that file's header for the
+correctness argument and `native/HISTORY.md`'s 2026-07-23 entry for the full writeup.
+
 ### Lumen-written emitters and passes
 
 <!-- AUTO:emitters -->

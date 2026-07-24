@@ -108,6 +108,11 @@ another agent is using concurrently.
 - `tools/absorb/` - oracle-gated absorption of foreign (Python, C, C++) functions.
 - `bench/vs-c/` - matched-kernel timings against real C.
 - `native/lumend_native.mjs` - the persistent native-compiler daemon (warm process over a socket).
+- `native/build_cache.mjs` - content-addressed cache (keyed on the emitted C + opt flag + clang
+  identity) for `pipeline.mjs`'s `buildAndRunFnResident`, so a repeat compile of the same program
+  skips `clang` entirely. Repo-local `native/.native-build-cache/` (gitignored); `LUMEN_NO_CACHE=1`
+  bypasses it (same env var `seed/cache.mjs` uses); `node native/build_cache_clean.mjs [--clear]`
+  for manual inspection/cleanup (no automatic eviction yet - see the file's header).
 - `.claude/skills/lumen/SKILL.md` in the QUANTS repo is the parallel front door for Claude Code
   sessions whose working directory is QUANTS, not this repo (they cannot auto-load this file);
   keep the operational facts here and there from drifting apart when either changes.

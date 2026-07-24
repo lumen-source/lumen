@@ -39,6 +39,7 @@ import { compileToIRNative, compileToIRNativeRaw, compileToIRNativeResident, opt
 import { runLumemitNative } from './lumemit_native.mjs';
 import { buildNativeBinaryFromC } from './lumenc_native.mjs';
 import { createInterpreter, CODE_BASE as INTERP_CODE_BASE } from './ir_interpreter.mjs';
+import { getCachedBinary, storeBinary } from './build_cache.mjs';
 
 const SRC_BASE = 100000;
 const CODE_BASE = 11328;
@@ -168,6 +169,49 @@ export async function buildAndRunFn(src, opt = '-O2') {
   try { stdout = execFileSync(bin, { encoding: 'utf8' }); }
   catch (e) { stdout = e.stdout ? e.stdout.toString() : ''; exit = typeof e.status === 'number' ? e.status : 1; }
   return { stdout, exit, csrc };
+}
+
+// Resident-backed twin of buildAndRunFn, for repeat-call callers that live in one long-running
+// process (seed/lumen_mcp.mjs's lumen_run_native tool is the intended caller - compileToIRAuto's
+// own header comment already named it as such). Only the COMPILE step differs from buildAndRunFn
+// (compileToIRNative's per-call native-binary process spawn -> compileToIRAuto's warm
+// resident-server round trip, no spawn once warm); the emit/build/execute steps after it are the
+// same shape as buildAndRunFn on purpose. Deliberately NOT a change to buildAndRunFn itself: that
+// function has ~45 existing callers across this repo, and a resident-vs-fresh-process behavioral
+// difference (and now, a build-cache lookup) is exactly the kind of thing that should not
+// silently ride along with an unrelated caller's request. If in doubt, this function is the one
+// that changes; buildAndRunFn stays untouched.
+//
+// Build cache: keyed on the EMITTED C (csrc, post-optimize, post-emit) plus the opt flag - see
+// build_cache.mjs's header for the full correctness argument (two independent defenses against
+// ever serving the wrong binary: the key folds in opt + clang identity, and every cache hit
+// re-verifies the stored source byte-for-byte before the binary is trusted). On a hit, the
+// `clang` invocation is skipped entirely; the cached binary is executed directly from the cache
+// directory (never mutated after being written, so this is safe against concurrent callers). On
+// a miss, build exactly as buildAndRunFn does, then store the result for next time (best-effort:
+// a store failure never fails the call - the binary just built is still executed and returned).
+export async function buildAndRunFnResident(src, opt = '-O2') {
+  const { words, main, strings } = await compileToIRAuto(src);
+  const optResult = optimizeIRNative(words, main);
+  const csrc = await emitC(optResult.words, optResult.main, strings);
+
+  const cachedBin = getCachedBinary(csrc, opt);
+  let bin;
+  if (cachedBin) {
+    bin = cachedBin;
+  } else {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumen-fn-'));
+    const cfile = path.join(dir, 'p.c');
+    bin = path.join(dir, 'p');
+    fs.writeFileSync(cfile, csrc);
+    try { execFileSync('clang', ['-ffp-contract=off', '-fno-fast-math', opt, '-o', bin, cfile], { stdio: ['ignore', 'ignore', 'pipe'] }); }
+    catch (e) { throw new Error(`clang failed: ${String(e.stderr || e.message).slice(0, 300)}`); }
+    storeBinary(csrc, opt, bin);
+  }
+  let stdout = '', exit = 0;
+  try { stdout = execFileSync(bin, { encoding: 'utf8' }); }
+  catch (e) { stdout = e.stdout ? e.stdout.toString() : ''; exit = typeof e.status === 'number' ? e.status : 1; }
+  return { stdout, exit, csrc, cacheHit: !!cachedBin };
 }
 
 // run optimize.lm's compiled-and-cached native binary over an injected IR snapshot.
