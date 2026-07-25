@@ -1,6 +1,6 @@
-# Heston IV approximation (Lewis/Gatheral closed form) - native Lumen port of the
-# shipped volatility_surface.js kernel that powers beta-app.fdv-quants.com/volatility-surface.
-# Oracle probes (exact JS formula, must match to ~1e-9):
+# Heston implied-volatility approximation (Lewis/Gatheral closed form) in native Lumen.
+# Parameters used below: S=100 r=0.045 v0=0.05 kappa=2 theta=0.04 xi=0.2 rho=0.1.
+# Reference oracle this kernel must reproduce (to ~1e-9):
 #   (K=70,T=0.25)=0.216972279389  (K=100,T=1.0)=0.210276489335
 #   (K=130,T=2.0)=0.207265613578  (K=85,T=0.5)=0.214200288766
 

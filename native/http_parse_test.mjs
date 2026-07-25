@@ -17,7 +17,7 @@ const REQ_LEN_ADDR = 599996;
 
 // Each case: [raw request, [method_code, path_offset, path_len, http_version]]
 const CASES = [
-  ['GET /home HTTP/1.1\r\nHost: fdv-quants.com\r\n\r\n', [1, 4, 5, 11]],
+  ['GET /home HTTP/1.1\r\nHost: example.com\r\n\r\n', [1, 4, 5, 11]],
   ['POST /api/price HTTP/1.1\r\nContent-Length: 12\r\n\r\n', [2, 5, 10, 11]],
   ['DELETE /x HTTP/1.0\r\n\r\n', [4, 7, 2, 10]],
   ['PUT /a HTTP/1.1\r\n\r\n', [3, 4, 2, 11]],

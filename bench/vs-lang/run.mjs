@@ -24,8 +24,9 @@
 // number for twins that compute different things.
 //
 // Compiler provenance (see SCOREBOARD.md for the full discussion): this machine has GCC and
-// LLVM/Clang cloned FROM SOURCE at /Users/freedom/repos-languages/{gcc,llvm} specifically so
-// comparisons can race real modern optimizing compilers, not a stale system toolchain. Neither
+// LLVM/Clang cloned FROM SOURCE under a local source-built toolchain root (the {gcc,llvm}
+// subdirectories of the path named by the LUMEN_LANGUAGES_ROOT environment variable) specifically
+// so comparisons can race real modern optimizing compilers, not a stale system toolchain. Neither
 // tree has a built compiler binary or install receipt (`*/build/`, `*/obj*` checked, none found;
 // a from-source GCC/LLVM build is a multi-hour undertaking not attempted in this pass - see
 // SCOREBOARD.md "Follow-up"). This run therefore falls back to the newest system-installed
@@ -35,7 +36,7 @@
 // machine are the SAME Apple clang binary under a different argv[0] (verified via `--version`,
 // not assumed) - never presented as a distinct data point from clang/clang++ anywhere in this
 // file or SCOREBOARD.md. Rust is a real, separately-installed toolchain (rustc via rustup, not
-// the source clone at /Users/freedom/repos-languages/rust, which has no build artifacts and was
+// the source clone at $LUMEN_LANGUAGES_ROOT/rust, which has no build artifacts and was
 // not built from source given the multi-hour cost - same disclosure pattern as GCC/LLVM above).
 // Python is the system CPython at `python3` (version printed below at run time).
 //
@@ -214,7 +215,7 @@ function renderScoreboard(rows, sys) {
   lines.push('  `native/emit_fn.lm`\'s C emitter) -> `clang -O3` -> standalone native binary.');
   lines.push('- C path: `clang -O3` directly on the hand-written `.c` twin.');
   lines.push('- Rust path: `rustc -O` directly on the hand-written `.rs` twin (rustup-installed');
-  lines.push('  toolchain, NOT built from the source clone at `~/repos-languages/rust`, which has no');
+  lines.push('  toolchain, NOT built from the source clone at `$LUMEN_LANGUAGES_ROOT/rust`, which has no');
   lines.push('  build artifacts - see "Compiler provenance"). `-O` is rustc\'s standard optimized-build');
   lines.push('  flag; it is not the literal same flag namespace as clang\'s `-O3` but is the correct');
   lines.push('  "give me an optimized release build" flag for this compiler, same intent.');
@@ -229,9 +230,9 @@ function renderScoreboard(rows, sys) {
   lines.push('');
   lines.push('## Compiler provenance');
   lines.push('');
-  lines.push('This machine has GCC and LLVM/Clang cloned from source at `/Users/freedom/repos-languages/gcc`');
-  lines.push('and `/Users/freedom/repos-languages/llvm`, and Rust cloned from source at');
-  lines.push('`/Users/freedom/repos-languages/rust`, specifically so comparisons could race real modern');
+  lines.push('This machine has GCC, LLVM/Clang, and Rust cloned from source under a local source-built');
+  lines.push('toolchain root (the `gcc`, `llvm`, and `rust` subdirectories of the path named by the');
+  lines.push('`LUMEN_LANGUAGES_ROOT` environment variable), specifically so comparisons could race real modern');
   lines.push('compilers built from source, not stale system/package-manager toolchains. **Checked before');
   lines.push('this run**: none of the three trees has a built compiler binary or install receipt (`find');
   lines.push('*/build/ */obj*` under each returned nothing for the compilers themselves). Building any of');
@@ -310,8 +311,8 @@ function renderScoreboard(rows, sys) {
   lines.push('');
   lines.push('## Follow-up');
   lines.push('');
-  lines.push('- Build real GCC, LLVM/Clang, and rustc from the cloned source trees at');
-  lines.push('  `/Users/freedom/repos-languages/{gcc,llvm,rust}` (multi-hour each, background jobs) and');
+  lines.push('- Build real GCC, LLVM/Clang, and rustc from the source trees under the local source-built');
+  lines.push('  toolchain root (`$LUMEN_LANGUAGES_ROOT/{gcc,llvm,rust}`; multi-hour each, background jobs) and');
   lines.push('  re-run this scoreboard against those binaries instead of the system/rustup fallbacks used');
   lines.push('  here.');
   lines.push('- Root-cause the N=39 array-size boundary bug found above.');

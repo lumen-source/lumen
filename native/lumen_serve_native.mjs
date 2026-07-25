@@ -613,12 +613,12 @@ function proxyRequest(origin, reqBytes) {
 
 // Cache the COMPILED native server binary on disk, keyed by everything that determines its
 // bytes (routes, proxy mode, handler source, cache-format version). Every deploy of a static
-// Lumen-edge site invokes runServer() TWICE against the identical cfgPath with identical
-// inputs: once during the Docker build's warmup RUN step, once again at every runtime cold
-// start (the CMD). Before this cache existed, both invocations independently ran the full
-// emit_fn.lm -> C -> clang -O2 pipeline - meaning EVERY Cloud Run cold start paid a fresh
-// clang compile, and the transient memory that compile needs (measured ~345 MiB against a
-// 256 MiB limit on 2026-07-24, root-caused via direct instrumentation, not guessed: see
+// site served this way on a scale-to-zero container platform invokes runServer() TWICE against
+// the identical cfgPath with identical inputs: once during the Docker build's warmup RUN step,
+// once again at every runtime cold start (the CMD). Before this cache existed, both invocations
+// independently ran the full emit_fn.lm -> C -> clang -O2 pipeline - meaning EVERY cold start
+// paid a fresh clang compile, and the transient memory that compile needs (measured ~345 MiB
+// against a 256 MiB limit on 2026-07-24, root-caused via direct instrumentation, not guessed: see
 // docs root-cause note in the PR that added this) OOM-killed the container before it could
 // even bind its listening port. The warmup step's own comment already claimed cold starts
 // "skip the clang compile entirely" - that was aspirational, not true, until this cache made

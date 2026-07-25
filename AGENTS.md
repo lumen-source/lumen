@@ -69,6 +69,31 @@ the repo owner (`enforce_admins: true`). Concretely:
   protection; it is exactly the intended path.
 - One language/feature change per PR, per the project's existing convention (see `RULES.md`).
 
+## This repo is public: the boundary gate is blocking
+
+`tools/boundary_gate.mjs` runs inside `gate` and fails the build if any tracked file contains a
+private identifier: internal hostnames and service names, private product or repository names,
+absolute home-directory paths, or agent scratch paths. It exists because an audit on 2026-07-24
+found nineteen tracked files on `main` leaking, including an internal hostname used as an HTTP
+test vector, a proprietary kernel named as the provenance of four numeric examples, and a home
+directory hardcoded into live compiler-discovery logic.
+
+Two things to know before you trip it:
+
+- **Fix by generalising, not by exempting.** Keep the technical point, drop the private name. The
+  numbers, the model names, and the engineering rationale are all publishable; the deployment
+  URL and the private system that motivated them are not. If you are certain a hit is a false
+  positive, narrow the pattern rather than allowlisting the file, so the rule keeps protecting
+  everything else.
+- **Absolute home paths are a portability bug too**, not only a privacy one. Code that hardcodes
+  `/Users/<someone>/...` works on exactly one machine. Use a path relative to the importing file,
+  or a documented environment variable with a graceful fallback (see `LUMEN_LANGUAGES_ROOT` in
+  `tools/absorb/README.md` for the established pattern).
+
+Run it yourself with `node tools/boundary_gate.mjs`. `--self` additionally proves the gate's own
+source is clean under its own rules: every forbidden pattern is assembled from fragments at
+runtime, so no forbidden literal appears in the gate and the gate can therefore scan itself.
+
 ## Working in parallel: clone, don't worktree
 
 If you are one of several agents working this repo at once, each should work in an independent
@@ -108,6 +133,6 @@ another agent is using concurrently.
 - `tools/absorb/` - oracle-gated absorption of foreign (Python, C, C++) functions.
 - `bench/vs-lang/` - matched-kernel timings against real C, Rust, and Python.
 - `native/lumend_native.mjs` - the persistent native-compiler daemon (warm process over a socket).
-- `.claude/skills/lumen/SKILL.md` in the QUANTS repo is the parallel front door for Claude Code
-  sessions whose working directory is QUANTS, not this repo (they cannot auto-load this file);
-  keep the operational facts here and there from drifting apart when either changes.
+- A downstream consumer repo keeps a parallel skill file that acts as the front door for agent
+  sessions rooted outside this repo (they cannot auto-load this file); keep the operational facts
+  here and there from drifting apart when either changes.
