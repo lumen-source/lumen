@@ -622,6 +622,33 @@ fn emit_op(c: Console, pc: Int, d: Int, func_pc: Int) -> Int {
     set_sty(d - 1, 0)
     return d
   }
+  if op == 73 {
+    let entry = ir_word(pc + 1)
+    let ncap = ir_word(pc + 2)
+    slot_int(c, d - ncap) c.print("=lm_mkclosure(") num(c, entry) c.print(",") num(c, ncap)
+    var j = 0
+    while j < ncap {
+      c.print(",")
+      sl_int(c, d - ncap + j)
+      j = j + 1
+    }
+    c.print(");\n")
+    set_sty(d - ncap, 0)
+    return d - ncap + 1
+  }
+  if op == 74 {
+    let argc = ir_word(pc + 1)
+    slot_int(c, d - argc - 1) c.print("=lm_callclosure(") sl_int(c, d - argc - 1) c.print(",") num(c, argc)
+    var j = 0
+    while j < argc {
+      c.print(",")
+      sl_int(c, d - argc + j)
+      j = j + 1
+    }
+    c.print(");\n")
+    set_sty(d - argc - 1, 0)
+    return d - argc
+  }
   c.print("\n#error unsupported ") num(c, op) c.print("\n")
   return d
 }

@@ -149,18 +149,19 @@ export async function createCompiler() {
       const mathElemPath = new URL('./math_elem.lm', import.meta.url);
       if (fs.existsSync(mathElemPath)) {
         const mathElemSrc = fs.readFileSync(mathElemPath, 'utf8');
-        prepSource = mathElemSrc + '\n' + prepSource.replace(/^(import|module)\s+math_elem.*/gm, m => ' '.repeat(m.length));
+        prepSource = mathElemSrc + '\n' + prepSource.replace(/(import|module)\s+math_elem[^\n]*/g, m => ' '.repeat(m.length));
       }
     }
     if (source.includes('import cas_core') || source.includes('module cas_core')) {
       const casCorePath = new URL('./cas_core.lm', import.meta.url);
       if (fs.existsSync(casCorePath)) {
         const casCoreSrc = fs.readFileSync(casCorePath, 'utf8');
-        prepSource = casCoreSrc + '\n' + prepSource.replace(/^(import|module)\s+cas_core.*/gm, m => ' '.repeat(m.length));
+        const stripped = prepSource.replace(/(import|module)\s+cas_core[^\n]*/g, m => ' '.repeat(m.length));
+        prepSource = casCoreSrc + '\n' + stripped;
       }
     }
     if (prepSource.includes('import lumenc_') || prepSource.includes('module lumenc_')) {
-      prepSource = prepSource.replace(/^(import|module)\s+lumenc_(core|emit).*/gm, m => ' '.repeat(m.length));
+      prepSource = prepSource.replace(/(import|module)\s+lumenc_(core|emit)[^\n]*/g, m => ' '.repeat(m.length));
     }
     const topDiags = findUnknownTopLevelDiags(prepSource);
     if (topDiags.length > 0) {
