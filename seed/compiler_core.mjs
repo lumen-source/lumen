@@ -45,6 +45,8 @@ export const SRC_BASE = 100000;
 export const SRC_CAPACITY = 70000;   // SRC region is [100000,170000) (D4: raised from 50000 so lumenc.lm's own growth to compile Dec still self-hosts); a longer source overruns into the SYMBOLS region at 170000
 export const DIAG_BASE = 286000;   // historical: the RETIRED wasm seed's OWN internal diag address (native's own diag region is now 390000, D4-shifted +100000 from 290000; see native/lumenc_native.mjs's DIAG_BASE comment). Kept exported for any caller still importing it; not load-bearing here.
 export const CODE_BASE = 11328;   // emitted IR words - matches native/ir_interpreter.mjs's CODE_BASE
+export const LIT_HEAP_BASE = 488000; // literal heap base address
+
 
 export const OPS = {0:'HALT',1:'PUSH',2:'GETARG',3:'ADD',4:'SUB',5:'LT',6:'JZ',7:'JMP',8:'CALL',
   9:'RET',10:'PRINTINT',11:'MUL',12:'DIV',13:'RESERVE',14:'SETLOCAL',15:'MKTEXT',
