@@ -3,7 +3,8 @@
 // compiler behavior in isolation, so a change that breaks one basic fails one named test
 // instead of a tangle of examples. Fast: one warm compiler for the whole run.
 // Usage: node basics.mjs
-import { createCompiler } from './compiler_core.mjs';
+import { createCompiler, isCapabilityType, read_file, read_line, OPS } from './compiler_core.mjs';
+import { isCapabilityType as isCapPipe, read_file as readFilePipe, read_line as readLinePipe } from '../native/pipeline.mjs';
 import { buildDiagnostics, applyFixes } from './diagnostics.mjs';
 import fs from 'node:fs';
 
@@ -326,6 +327,27 @@ deepEq('E0011 print_float is not a Console method',
   codesOf('fn main(c: Console) -> Unit {\n  c.print_float(1.5)\n}\n'), ['E0011:print_float']);
 deepEq('a threaded capability is still accepted',
   codesOf('fn helper(c: Console, n: Int) -> Int {\n  c.print_int(n)\n  return n\n}\nfn main(c: Console) -> Unit {\n  c.print_int(helper(c, 1))\n}\n'), []);
+
+// Track D: Read capability parameter recognition and Rule 5 capability parameter passing
+deepEq('Rule 5: forged Read capability receiver rejected with E0010',
+  codesOf('fn sneaky_read(path: Text) -> Text {\n  r.read_file(path)\n  return path\n}\nfn main(c: Console, r: Read) -> Unit {\n  c.print_int(1)\n}\n'),
+  ['E0010:r', 'E0011:read_file']);
+deepEq('Rule 5: unpassed Read capability receiver rejected with E0010',
+  codesOf('fn unpassed(n: Int) -> Int {\n  fs.read_line("data.txt")\n  return n\n}\nfn main(c: Console, r: Read) -> Unit {\n  c.print_int(unpassed(1))\n}\n'),
+  ['E0010:fs', 'E0011:read_line']);
+deepEq('Rule 5: threaded Read capability parameter is accepted without receiver error E0010',
+  codesOf('fn helper_read(r: Read, path: Text) -> Text {\n  return path\n}\nfn main(c: Console, r: Read) -> Unit {\n  c.print_int(1)\n}\n'),
+  []);
+eq('compiler_core exports READFILE opcode', OPS[71], 'READFILE');
+eq('compiler_core exports READLINE opcode', OPS[72], 'READLINE');
+eq('isCapabilityType recognizes Console', isCapabilityType('Console'), true);
+eq('isCapabilityType recognizes Read', isCapabilityType('Read'), true);
+eq('isCapabilityType rejects unknown type', isCapabilityType('Int'), false);
+eq('pipeline exports isCapabilityType for Read', isCapPipe('Read'), true);
+eq('read_file stub executes without throwing', typeof read_file('nonexistent.txt'), 'string');
+eq('read_line stub executes without throwing', typeof read_line('nonexistent.txt'), 'string');
+eq('pipeline read_file stub executes without throwing', typeof readFilePipe('nonexistent.txt'), 'string');
+eq('pipeline read_line stub executes without throwing', typeof readLinePipe('nonexistent.txt'), 'string');
 // R5 KNOWN GAP (same class as above): lumenc.lm's grouping-expression error recovery does not
 // yet catch these two malformed shapes the wasm seed catches (a bad token inside parens; an
 // empty-grouping return() in a non-Unit function) - verified nerr=0 on the native compiler for

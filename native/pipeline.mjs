@@ -245,6 +245,30 @@ export async function buildAndRun(src, opt = '-O2') {
   return buildAndRunFn(src, opt);   // v1 (emit.lm) is retired along with wasm; v2 (emit_fn.lm) is a strict superset (native_diff.mjs's own header confirms this)
 }
 
+// Track D: Read capability parameter recognition and host file data-in primitives
+export const CAPABILITY_TYPES = ['Console', 'Read'];
+export function isCapabilityType(typeName) {
+  return typeName === 'Console' || typeName === 'Read';
+}
+
+export function read_file(pathStr) {
+  try {
+    return fs.readFileSync(pathStr, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+export function read_line(pathStr) {
+  try {
+    const content = fs.readFileSync(pathStr, 'utf8');
+    const idx = content.indexOf('\n');
+    return idx >= 0 ? content.slice(0, idx) : content;
+  } catch {
+    return '';
+  }
+}
+
 // --- the one remaining wasm touch in this repo: emit_llvm.lm has no native bootstrap (see the
 // header comment at the top of this file for why). Isolated to these functions; callers are
 // exactly native/llvm_diff.mjs, native/llvm_float_test.mjs, native/arm64_spike_check.mjs, and
