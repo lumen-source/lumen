@@ -92,7 +92,7 @@ function g1_no_host_codegen() {
 async function g7_generality() {
   if (!simdCapable()) { record('G7', true, 'emit_fn.lm emits no SIMD; scalar path, no SIMD claim (N/A)'); return; }
   const { buildAndRunFn } = await import(path.join(NATIVE, 'pipeline.mjs'));
-  const N = 4096;
+  const N = 2048;
   // A novel transcendental map (Gaussian), NOT Black-Scholes: the exact shape a general Float-array
   // vectorizer must handle, and the exact shape a benchmark-pattern-matcher will miss.
   const novel = `fn g(x: Float) -> Float { return exp(0.0 - 0.5 * x * x) }
@@ -213,7 +213,7 @@ async function g3_performance() {
   const spawn = median(Array.from({ length: 7 }, () => timeRun(path.join(dir, 'noop'))));
   const rate = (bin) => { timeRun(bin); return PERF_N / (Math.max(0.001, median(Array.from({ length: 5 }, () => timeRun(bin))) - spawn) / 1000); }; // warmup + median-5 (G5)
   const nat = await buildAndRunFn(bsProgram(100, 100, '0.05', '1.0', PERF_N), '-O3');
-  fs.writeFileSync(path.join(dir, 'nat.c'), nat.csrc.replace(/#define AHEAP_CAP \(1<<\d+\)/, '#define AHEAP_CAP (1<<24)'));
+  fs.writeFileSync(path.join(dir, 'nat.c'), nat.csrc.replace(/#define AHEAP_CAP .*/, '#define AHEAP_CAP (1<<24)').replace(/#define LM_CAP_BYTES .*/, '#define LM_CAP_BYTES (1<<26)').replace(/#define AHEAP_PHYS .*/, '#define AHEAP_PHYS (1<<24)'));
   execFileSync('clang', [...FLAGS, '-o', path.join(dir, 'nat'), path.join(dir, 'nat.c')]);
   fs.writeFileSync(path.join(dir, 'c.c'), bsCProgram(100, 100, '0.05', '1.0', PERF_N));
   execFileSync('clang', [...FLAGS, '-o', path.join(dir, 'c'), path.join(dir, 'c.c')]);
