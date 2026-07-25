@@ -171,6 +171,10 @@ function fullSteps() {
     title: 'absorb gate (foreign-oracle kernels stay pinned and green)',
     run: () => run('node tools/absorb/absorb_selftest.mjs && node tools/absorb/absorb_gate.mjs', ROOT),
   });
+  steps.push({
+    title: 'boundary gate (no private identifiers in a public repo)',
+    run: () => run('node tools/boundary_gate.mjs --self && node tools/boundary_gate.mjs', ROOT),
+  });
   return steps;
 }
 

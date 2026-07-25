@@ -102,6 +102,5 @@ the SAME underlying language-level defects rather than being independent kernel 
 cases respectively, all passing against their live oracles).
 
 **Do not treat any kernel in this directory as production-grade until #1 and #2 are fixed at
-the language level** (both are natural next entries for the friction list in
-`.claude/skills/lumen/SKILL.md`'s companion QUANTS session) and `rsa_pss_kernel.lm`'s broader
-vector suite completes.
+the language level** (both are natural next entries for the language-level friction list) and
+`rsa_pss_kernel.lm`'s broader vector suite completes.
