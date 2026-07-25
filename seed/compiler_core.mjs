@@ -27,9 +27,9 @@ import { compileToIRResidentSync, stopResidentSyncBridge } from '../native/resid
 import { createInterpreter, CODE_BASE as INTERP_CODE_BASE } from '../native/ir_interpreter.mjs';
 import { findReadCapabilityCalls, findUnknownTopLevelDiags } from './diagnostics.mjs';
 
-export const COMPILER_MODULES = ['lumenc_core', 'lumenc_emit'];
+export const COMPILER_MODULES = ['lumenc_core', 'lumenc_emit', 'cas_core'];
 export function isCompilerModule(name) {
-  return name === 'lumenc_core' || name === 'lumenc_emit';
+  return name === 'lumenc_core' || name === 'lumenc_emit' || name === 'cas_core' || name === 'math_elem';
 }
 
 // Once the resident bridge fails for any reason, stop retrying it for the rest of this process
@@ -62,12 +62,21 @@ export const OPS = {0:'HALT',1:'PUSH',2:'GETARG',3:'ADD',4:'SUB',5:'LT',6:'JZ',7
   53:'LOAD32',54:'STORE32',55:'LOAD8',56:'STORE8',   // raw-memory keystone (self-host + native emitter/optimizer)
   58:'BAND',59:'BOR',60:'BXOR',61:'SHL',62:'SHR',63:'BNOT',   // bitwise builtins (stack ops, no inline operands)
   64:'DPUSH',65:'DFROMI',66:'DADD',67:'DSUB',68:'DMUL',69:'DDIV',70:'D2TEXT',   // Dec: exact decimal, i64 scale 1e-6 (D1)
-  71:'READFILE',72:'READLINE'};
+  71:'READFILE',72:'READLINE',73:'MKCLOSURE',74:'CALLCLOSURE'};
 
 // Track D: Read capability parameter recognition & host file data-in primitives
 export const CAPABILITY_TYPES = ['Console', 'Read'];
 export function isCapabilityType(typeName) {
   return typeName === 'Console' || typeName === 'Read';
+}
+
+// Track A: Language Core - Closures & First-Class Functions (AGY-E1.5)
+export const CLOSURE_OPS = { MKCLOSURE: 73, CALLCLOSURE: 74 };
+export function isClosureOpcode(op) {
+  return op === 73 || op === 74;
+}
+export function isFunctionType(typeName) {
+  return typeof typeName === 'string' && (typeName.startsWith('fn(') || typeName.startsWith('Closure') || typeName.includes('->'));
 }
 
 export function read_file(pathStr) {
@@ -97,8 +106,8 @@ export function read_line(pathStr) {
 // typesFromSource - missing it going into this fix) is the argument for unifying the two files
 // that already share an import line, not for a fifth still-independent copy.
 export function oplen(op) {
-  if (op === 8 || op === 29 || op === 64) return 2;   // CALL(entry,argc), FPUSH(lo,hi), DPUSH(lo,hi)
-  if (op === 1 || op === 2 || op === 6 || op === 7 || op === 13 || op === 14 || op === 15 || op === 25) return 1;
+  if (op === 8 || op === 29 || op === 64 || op === 73) return 2;   // CALL(entry,argc), FPUSH(lo,hi), DPUSH(lo,hi), MKCLOSURE(entry,ncap)
+  if (op === 1 || op === 2 || op === 6 || op === 7 || op === 13 || op === 14 || op === 15 || op === 25 || op === 74) return 1;
   return 0;
 }
 
@@ -135,13 +144,27 @@ export async function createCompiler() {
     if (srclen > SRC_CAPACITY) {   // guard: mirrors the wasm seed's SRC-capacity guard (BUG-safe: a too-long source must not silently corrupt anything downstream)
       throw new Error(`source ${srclen}B exceeds SRC capacity ${SRC_CAPACITY}B`);
     }
-    const topDiags = findUnknownTopLevelDiags(source);
+    let prepSource = source;
+    if (source.includes('import math_elem') || source.includes('module math_elem')) {
+      const mathElemPath = new URL('./math_elem.lm', import.meta.url);
+      if (fs.existsSync(mathElemPath)) {
+        const mathElemSrc = fs.readFileSync(mathElemPath, 'utf8');
+        prepSource = mathElemSrc + '\n' + prepSource.replace(/^(import|module)\s+math_elem.*/gm, m => ' '.repeat(m.length));
+      }
+    }
+    if (source.includes('import cas_core') || source.includes('module cas_core')) {
+      const casCorePath = new URL('./cas_core.lm', import.meta.url);
+      if (fs.existsSync(casCorePath)) {
+        const casCoreSrc = fs.readFileSync(casCorePath, 'utf8');
+        prepSource = casCoreSrc + '\n' + prepSource.replace(/^(import|module)\s+cas_core.*/gm, m => ' '.repeat(m.length));
+      }
+    }
+    if (prepSource.includes('import lumenc_') || prepSource.includes('module lumenc_')) {
+      prepSource = prepSource.replace(/^(import|module)\s+lumenc_(core|emit).*/gm, m => ' '.repeat(m.length));
+    }
+    const topDiags = findUnknownTopLevelDiags(prepSource);
     if (topDiags.length > 0) {
       return { ok: false, irWords: 0, main: 0, srclen, rawDiags: topDiags };
-    }
-    let prepSource = source;
-    if (source.includes('import lumenc_') || source.includes('module lumenc_')) {
-      prepSource = source.replace(/^(import|module)\s+lumenc_(core|emit).*/gm, m => ' '.repeat(m.length));
     }
     let r;
     if (!residentBridgeBroken) {
@@ -209,7 +232,7 @@ export async function createCompiler() {
     let i = 0;
     while (i < words.length) {
       const op = words[i];
-      if (op === 71 || op === 72) return true;
+      if (op === 71 || op === 72 || op === 73 || op === 74) return true;
       if (op === 57) {
         const ntot = words[i + 1] || 0;
         i += 3 + ntot;
@@ -394,6 +417,36 @@ export async function createCompiler() {
           const lineStr = read_line(pathStr);
           const resPtr = allocTextInMem(lineStr);
           opush(BigInt(resPtr));
+          break;
+        }
+        case 73: {
+          const entry = codew(pc), ncap = codew(pc + 1);
+          pc += 2;
+          const caps = [];
+          for (let i = 0; i < ncap; i++) caps.unshift(opop());
+          const ptr = interp.halloc(16 + ncap * 8);
+          dv.setInt32(ptr, entry, true);
+          dv.setInt32(ptr + 4, ncap, true);
+          for (let i = 0; i < ncap; i++) {
+            dv.setBigInt64(ptr + 8 + i * 8, wrapS64(caps[i]), true);
+          }
+          opush(BigInt(ptr));
+          break;
+        }
+        case 74: {
+          const argc = codew(pc); pc++;
+          const args = [];
+          for (let i = 0; i < argc; i++) args.unshift(opop());
+          const closPtr = Number(asU64(opop()) & 0xFFFFFFFFn);
+          const entry = dv.getInt32(closPtr, true);
+          const ncap = dv.getInt32(closPtr + 4, true);
+          i32[CSTACK_BASE / 4 + csp * 2] = pc;
+          i32[CSTACK_BASE / 4 + csp * 2 + 1] = argbase;
+          csp++;
+          argbase = osp;
+          for (let i = 0; i < argc; i++) opush(args[i]);
+          for (let i = 0; i < ncap; i++) opush(dv.getBigInt64(closPtr + 8 + i * 8, true));
+          pc = entry;
           break;
         }
         case 57: { pc = pc + codew(pc) + 2; break; }

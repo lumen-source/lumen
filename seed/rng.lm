@@ -1,0 +1,124 @@
+# seed/rng.lm - D4-RNG Numerical Solvers: PRNG & Probability Sampling (PCG64, Philox, Gaussian)
+
+# --- PCG64 PRNG (64-bit state, RXS-M-XS permutation) ---
+
+fn pcg64_step(state: Int, inc: Int) -> Int {
+  let m: Int = 6364136223846793005
+  return state * m + inc
+}
+
+fn pcg64_output(state: Int) -> Int {
+  let word0: Int = shr(bxor(state, shr(state, 28)), 59)
+  let word1: Int = bxor(state, shr(state, word0 + 4))
+  let mult: Int = -6040758649943992415
+  let word2: Int = word1 * mult
+  return bxor(word2, shr(word2, 43))
+}
+
+fn pcg64_float(state: Int) -> Float {
+  let out: Int = pcg64_output(state)
+  let u53: Int = band(shr(out, 11), 9007199254740991)
+  return to_float(u53) * 0.00000000000000011102230246251565
+}
+
+# --- Philox PRNG (Philox2x64 counter-based generator) ---
+
+fn philox2x64_mul_hi(a: Int, b: Int) -> Int {
+  let a_lo: Int = band(a, 4294967295)
+  let a_hi: Int = shr(a, 32)
+  let b_lo: Int = band(b, 4294967295)
+  let b_hi: Int = shr(b, 32)
+  let p0: Int = a_lo * b_lo
+  let p1: Int = a_lo * b_hi + shr(p0, 32)
+  let p2: Int = a_hi * b_lo + band(p1, 4294967295)
+  return a_hi * b_hi + shr(p1, 32) + shr(p2, 32)
+}
+
+fn philox2x64_round_c0(c0: Int, c1: Int, k: Int) -> Int {
+  let m0: Int = -3262657434524177773
+  let hi: Int = philox2x64_mul_hi(c0, m0)
+  return bxor(bxor(hi, c1), k)
+}
+
+fn philox2x64_round_c1(c0: Int) -> Int {
+  let m0: Int = -3262657434524177773
+  return c0 * m0
+}
+
+fn philox2x64_float(c0: Int, c1: Int, k: Int) -> Float {
+  let out: Int = philox2x64_round_c0(c0, c1, k)
+  let u53: Int = band(shr(out, 11), 9007199254740991)
+  return to_float(u53) * 0.00000000000000011102230246251565
+}
+
+# --- Gaussian Probability Sampling (Box-Muller & Marsaglia Polar) ---
+
+fn gaussian_box_muller(u1: Float, u2: Float) -> Float {
+  let pi2: Float = 6.283185307179586
+  let radius: Float = sqrt(0.0 - 2.0 * ln(u1))
+  let z: Float = radius * (1.0 - 0.5 * (u2 * pi2) * (u2 * pi2))
+  return z
+}
+
+fn gaussian_polar(u1: Float, u2: Float) -> Float {
+  let v1: Float = 2.0 * u1 - 1.0
+  let v2: Float = 2.0 * u2 - 1.0
+  let s: Float = v1 * v1 + v2 * v2
+  if s >= 1.0 or s == 0.0 {
+    return 0.0
+  }
+  let factor: Float = sqrt((0.0 - 2.0 * ln(s)) / s)
+  return v1 * factor
+}
+
+# --- 1B Sample Zero-Heap Benchmarks ---
+
+fn run_pcg64_samples(n: Int) -> Float {
+  var state: Int = 42
+  let inc: Int = 1442695040888963407
+  var sum: Float = 0.0
+  var i: Int = 0
+  while i < n {
+    state = pcg64_step(state, inc)
+    sum = sum + pcg64_float(state)
+    i = i + 1
+  }
+  return sum
+}
+
+fn run_philox_samples(n: Int) -> Float {
+  var c0: Int = 0
+  let c1: Int = 0
+  let k: Int = 123456789
+  var sum: Float = 0.0
+  var i: Int = 0
+  while i < n {
+    c0 = c0 + 1
+    sum = sum + philox2x64_float(c0, c1, k)
+    i = i + 1
+  }
+  return sum
+}
+
+fn run_gaussian_samples(n: Int) -> Float {
+  var state: Int = 100
+  let inc: Int = 1442695040888963407
+  var sum: Float = 0.0
+  var i: Int = 0
+  while i < n {
+    state = pcg64_step(state, inc)
+    let u1: Float = pcg64_float(state)
+    state = pcg64_step(state, inc)
+    let u2: Float = pcg64_float(state)
+    sum = sum + gaussian_polar(u1, u2)
+    i = i + 1
+  }
+  return sum
+}
+
+fn main(console: Console) -> Unit {
+  let s1: Float = run_pcg64_samples(1000)
+  let s2: Float = run_philox_samples(1000)
+  let s3: Float = run_gaussian_samples(1000)
+  console.print_int(round(s1 + s2 + s3))
+}
