@@ -307,6 +307,21 @@ deepEq('E0003 unexpected token', codesOf('fn main(c: Console) -> Unit {\n  @\n}\
 // ("memory trap") the native compiler - see those files' own updated comments.
 deepEq('E0004 unterminated block', codesOf('fn main(c: Console) -> Unit {\n'), ['E0004']);
 deepEq('clean program emits no diagnostics', codesOf('fn main(c: Console) -> Unit {\n  c.print_int(1)\n}\n'), []);
+// E0010/E0011: the capability-forgeability fix. Before it, the method-call branch captured the
+// receiver span and discarded it, so BOTH of these compiled clean and printed - the first from a
+// function holding no Console at all (making Rule 5 false in the implementation), the second by
+// falling through an unconditional PRINTINT that turned any unknown method name into print_int.
+deepEq('E0010 forged capability receiver',
+  codesOf('fn sneaky(n: Int) -> Int {\n  whatever.print_int(n)\n  return n\n}\nfn main(c: Console) -> Unit {\n  c.print_int(sneaky(1))\n}\n'),
+  ['E0010:whatever']);
+deepEq('E0011 unknown capability method',
+  codesOf('fn main(c: Console) -> Unit {\n  c.frobnicate(5)\n}\n'), ['E0011:frobnicate']);
+// print_float is the case that mattered most: it silently printed the raw f64 bit pattern
+// (4609434218613702656 for 1.5) rather than failing, so a wrong number reached the user.
+deepEq('E0011 print_float is not a Console method',
+  codesOf('fn main(c: Console) -> Unit {\n  c.print_float(1.5)\n}\n'), ['E0011:print_float']);
+deepEq('a threaded capability is still accepted',
+  codesOf('fn helper(c: Console, n: Int) -> Int {\n  c.print_int(n)\n  return n\n}\nfn main(c: Console) -> Unit {\n  c.print_int(helper(c, 1))\n}\n'), []);
 // R5 KNOWN GAP (same class as above): lumenc.lm's grouping-expression error recovery does not
 // yet catch these two malformed shapes the wasm seed catches (a bad token inside parens; an
 // empty-grouping return() in a non-Unit function) - verified nerr=0 on the native compiler for
