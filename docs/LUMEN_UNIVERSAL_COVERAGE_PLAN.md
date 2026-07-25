@@ -199,7 +199,7 @@ general win from a narrow one.
 - Baseline: scipy.optimize / OSQP.
 - Accuracy: converged solution within tol of the reference optimum; KKT residual <= tol.
 - Benchmark tasks: a standard test set (Rosenbrock, etc.) for unconstrained; an LP; a QP (e.g. a portfolio
-  optimization, tying to FE-API).
+  optimization, tying to production quant pricing workloads).
 - KPIs: iterations and wall time to tol vs scipy/OSQP; final objective gap.
 - Deliverables: `std/optimize/*.lm`, benchmarks.
 
@@ -209,8 +209,9 @@ general win from a narrow one.
 - Replaces: JAX, autograd, PyTorch autograd, Enzyme.
 - Baseline: JAX/autograd for correctness; hand-derived analytic gradients for accuracy.
 - Accuracy: AD gradient == analytic gradient to <= a few ULP on a test set of functions.
-- Benchmark tasks: gradient of Black-Scholes (the Greeks — ties to FE-API), gradient of a small MLP,
-  Jacobian of an ODE right-hand-side. Compare AD result to analytic and to finite-difference.
+- Benchmark tasks: gradient of Black-Scholes (the Greeks, tying to production quant pricing
+  workloads), gradient of a small MLP, Jacobian of an ODE right-hand-side. Compare AD result to
+  analytic and to finite-difference.
 - KPIs: gradient accuracy (ULP vs analytic); AD overhead ratio (time(grad)/time(fn)) vs JAX.
 - Deliverables: `std/autodiff/*.lm`, benchmarks. This is a flagship: AD that is fast AND certified against
   analytic truth is a strong "only Lumen" story (full-stack ownership lets AD be a compiler pass).
@@ -274,11 +275,11 @@ general win from a narrow one.
 
 ### Tier 4 - Applied and domain-specific (incumbents: QuantLib, OpenSSL, CGAL, NetworkX, SQL/pandas, CUDA)
 
-**D15. Quantitative finance (flagship - ties to FE-API and the Academy).**
+**D15. Quantitative finance (flagship - ties to production pricing workloads and quant education).**
 - Scope: pricing (Black-Scholes closed-form + Greeks; binomial/trinomial trees; Monte Carlo; PDE/finite
   difference); yield curves (bootstrapping, interpolation); risk (VaR, expected shortfall, CVA); vol
   surfaces. General over instrument parameters (per G2 - never bake S/K/r/T).
-- Replaces: QuantLib, FE-API's own pricing, Excel/VBA quant sheets.
+- Replaces: QuantLib, a production pricing API's own pricing core, Excel/VBA quant sheets.
 - Baseline: QuantLib and the honest scalar-libm C pricer (same algorithm, same accuracy).
 - Accuracy: prices within the price's condition-number-limited ULP of a high-precision reference; verify
   the Lumen price ULP EQUALS the reference implementation's ULP on the same grid (the honest parity claim).

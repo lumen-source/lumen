@@ -1250,9 +1250,22 @@
                 (call $adv)   ;; '('
                 (if (i32.ne (call $tk (global.get $tp)) (i32.const 4)) (then (call $c_expr)))
                 (call $adv)   ;; ')'
+                ;; E0010: resolve the receiver. It was parsed into $off/$len and then discarded
+                ;; here, which is why `anything.print_int(n)` compiled inside a function with no
+                ;; Console parameter and printed. The field-access branch below already resolves
+                ;; the identical locals; this branch was the only one that skipped it.
+                ;; Error-and-continue (the convention there) so $expr_pushes stays in sync.
+                (if (i32.lt_s (call $var_find (local.get $off) (local.get $len)) (i32.const 0))
+                  (then (call $err_add (i32.const 10) (local.get $off) (local.get $len))))
                 (if (call $eqlit (local.get $moff) (local.get $mlen) (i32.const 248140) (i32.const 5))   ;; "print"
                   (then (call $emitw (i32.const 16)) (global.set $expr_pushes (i32.const 0)))    ;; PRINTTEXT
-                  (else (call $emitw (i32.const 10)) (global.set $expr_pushes (i32.const 0))))   ;; PRINTINT (print_int)
+                  (else
+                    ;; E0011: this arm used to be an unconditional PRINTINT, so ANY unknown
+                    ;; method silently became print_int - c.print_float(1.5) printed the f64 bit
+                    ;; pattern, c.frobnicate(5) printed 5. A wrong answer, not just unsoundness.
+                    (if (i32.eqz (call $eqlit (local.get $moff) (local.get $mlen) (i32.const 248040) (i32.const 9)))   ;; "print_int"
+                      (then (call $err_add (i32.const 11) (local.get $moff) (local.get $mlen))))
+                    (call $emitw (i32.const 10)) (global.set $expr_pushes (i32.const 0))))   ;; PRINTINT
                 (return))
               (else
                 ;; field access p.field: GETARG the record, AGET its field's global slot

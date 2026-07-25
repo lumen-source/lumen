@@ -166,23 +166,33 @@ function runPythonOracle(pyPath, fnName, inputs, ret) {
 // around real C/C++ standard-library or compiler-builtin functions (see
 // examples/absorbed/c/, examples/absorbed/cpp/), same role as the Python oracle .py files.
 //
-// Compiler discovery prefers a prebuilt binary under the cloned /Users/freedom/repos-languages
-// sources (gcc/build/gcc/xgcc for C, llvm/build/bin/clang++ for C++) and falls back to
-// whatever gcc/g++/clang/clang++ is on PATH, exactly the fallback discipline already used by
-// the repo's bench/vs-lang track: whichever compiler is actually used is recorded (binary path,
-// --version banner) in the frozen fixture, never silently assumed.
-const CLONED_LANGUAGES_ROOT = '/Users/freedom/repos-languages';
+// Compiler discovery prefers a prebuilt binary under a local source-built toolchain root
+// (gcc/build/gcc/xgcc for C, llvm/build/bin/clang++ for C++), so an absorption can race a real
+// modern optimizing compiler you built yourself rather than a stale system toolchain. That root
+// is NOT hardcoded: it is read from the LUMEN_LANGUAGES_ROOT environment variable, and when the
+// variable is unset (the default, and the state of a fresh clone) discovery skips the prebuilt
+// candidate entirely and falls back to whatever gcc/g++/clang/clang++ is on PATH, exactly the
+// fallback discipline already used by the repo's bench/vs-lang track: whichever compiler is
+// actually used is recorded (binary path, --version banner) in the frozen fixture, never
+// silently assumed. See tools/absorb/README.md, "Compiler discovery".
+const LANGUAGES_ROOT_ENV = 'LUMEN_LANGUAGES_ROOT';
+
+function languagesRoot() {
+  const v = process.env[LANGUAGES_ROOT_ENV];
+  return v && v.length > 0 ? v : null;
+}
 
 function candidateCompilers(oracle) {
+  const root = languagesRoot();
   if (oracle === 'cpp') {
     return [
-      { bin: path.join(CLONED_LANGUAGES_ROOT, 'llvm', 'build', 'bin', 'clang++'), label: 'cloned llvm (prebuilt, repos-languages/llvm)' },
+      ...(root ? [{ bin: path.join(root, 'llvm', 'build', 'bin', 'clang++'), label: `source-built llvm (prebuilt, $${LANGUAGES_ROOT_ENV}/llvm)` }] : []),
       { bin: 'clang++', label: 'system clang++' },
       { bin: 'g++', label: 'system g++' },
     ];
   }
   return [
-    { bin: path.join(CLONED_LANGUAGES_ROOT, 'gcc', 'build', 'gcc', 'xgcc'), label: 'cloned gcc (prebuilt, repos-languages/gcc)' },
+    ...(root ? [{ bin: path.join(root, 'gcc', 'build', 'gcc', 'xgcc'), label: `source-built gcc (prebuilt, $${LANGUAGES_ROOT_ENV}/gcc)` }] : []),
     { bin: 'gcc', label: 'system gcc' },
     { bin: 'clang', label: 'system clang' },
   ];
@@ -196,7 +206,8 @@ function discoverCompiler(oracle) {
       return c;
     } catch { /* try next candidate */ }
   }
-  throw new Error(`no usable ${oracle} compiler found (checked cloned ${CLONED_LANGUAGES_ROOT} prebuilt, then system PATH)`);
+  const checked = languagesRoot() ? `the ${LANGUAGES_ROOT_ENV} prebuilt path, then ` : '';
+  throw new Error(`no usable ${oracle} compiler found (checked ${checked}system PATH; set ${LANGUAGES_ROOT_ENV} to prefer a source-built toolchain)`);
 }
 
 function cLiteral(arg) {
