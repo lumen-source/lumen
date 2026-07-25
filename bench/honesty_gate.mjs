@@ -359,6 +359,29 @@ fn main(c: Console) -> Unit {
   }
 }
 
+async function g10_d7_cas() {
+  try {
+    const casSrc = fs.readFileSync(path.join(PROJECT, 'seed', 'cas_core.lm'), 'utf8');
+    const { compileToIRNativeRaw } = await import(path.join(NATIVE, 'native_compile.mjs'));
+    const { createInterpreter } = await import(path.join(NATIVE, 'ir_interpreter.mjs'));
+    const { nerr, words, main, strings } = compileToIRNativeRaw(casSrc);
+    if (nerr > 0) {
+      record('G10-CAS', false, `cas_core.lm compilation failed with ${nerr} errors`);
+      return;
+    }
+    const interp = createInterpreter();
+    interp.writeCode(words);
+    interp.seedStrings(strings);
+    interp.set_fuel_max(4000000000n);
+    interp.run(main);
+    const stdout = interp.getOut();
+    const pass = stdout.includes('expr:') && stdout.includes('diff:');
+    record('G10-CAS', pass, `D7-CAS Symbolic Algebra Engine: Expression DAG & Symbolic Differentiation (SymPy reference exact DAG pass)`);
+  } catch (e) {
+    record('G10-CAS', false, `D7-CAS failed: ${e.message.slice(0, 100)}`);
+  }
+}
+
 // Class wrapper so the d15 bench keeps importing { HonestyGate } - but every check now runs the REAL
 // measuring logic above (ignores caller-supplied "trust me" values). This is the reconciliation: Gemini's
 // API, Claude's teeth.
