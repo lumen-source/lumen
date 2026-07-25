@@ -6,6 +6,17 @@
 // the toolchain self-contained on top of the native compiler + in-process interpreter (R5;
 // WebAssembly/wabt retired - see native/lumenc.bootstrap.c and native/ir_interpreter.mjs).
 //
+// The metric this whole surface is built to move: tokens-to-green (RULES.md, VISION_2036.md row
+// 9, docs/AI_FEEDBACK_LOOP.md, bench/authorship/) - how many tokens and rounds an AI author needs
+// to go from a prompt to a passing program. lumen_check returns a structured Diagnostic stream
+// instead of prose so an agent does not have to parse an error message to know what to fix;
+// lumen_fix applies the compiler's own confident fixes for zero output tokens where a fix is
+// unambiguous; the warm daemon proxy below removes cold-start latency from every round. This is
+// the actual, load-bearing reason this tool surface exists in this shape - not a convenience
+// layer, the mechanism the project's stated moat depends on. See bench/authorship/ for real,
+// honestly-reported pilot measurements of whether it is working, including runs where it did not
+// win - that data source is the authority on this claim, not this comment.
+//
 // Tools: lumen_check, lumen_fix, lumen_run, lumen_ir, lumen_explain, lumen_batch, lumen_profile,
 // lumen_symbols, and the full-compiler-access set lumen_tokens, lumen_types, lumen_optimize,
 // lumen_emit_c, lumen_emit_llvm (every artifact the compiler produces, exposed to agents; the
@@ -397,9 +408,9 @@ async function runNativeFromSource(src) {
 }
 
 const TOOLS = [
-  { name: 'lumen_check', description: 'Compile Lumen source and return structured diagnostics (the canonical Diagnostic stream). Empty diagnostics means it compiles.',
+  { name: 'lumen_check', description: 'Compile Lumen source and return structured diagnostics (the canonical Diagnostic stream, JSON not prose - built to be fixed programmatically rather than re-read and re-guessed, minimizing rounds-to-green). Empty diagnostics means it compiles.',
     inputSchema: { type: 'object', properties: { source: { type: 'string', description: 'Lumen (.lm) source' } }, required: ['source'] } },
-  { name: 'lumen_fix', description: 'Apply the compiler\'s confident fixes to Lumen source (delete an unexpected token, close an unterminated block) and return the repaired source plus any remaining diagnostics.',
+  { name: 'lumen_fix', description: 'Apply the compiler\'s confident fixes to Lumen source (delete an unexpected token, close an unterminated block) and return the repaired source plus any remaining diagnostics. Zero-output-token round: prefer this over re-generating the whole source when a fix is available.',
     inputSchema: { type: 'object', properties: { source: { type: 'string' } }, required: ['source'] } },
   { name: 'lumen_run', description: 'Compile and run Lumen source; return its stdout, or diagnostics if it does not compile. The interpreter has a 4-billion-step safety cap (default); if a program needs more (e.g. large bignum modpow), pass fuel as a decimal-string step count to raise it. If the result has fuelExhausted:true, the program did NOT finish - any stdout is partial, not a genuine empty/short result - retry with a higher fuel.',
     inputSchema: { type: 'object', properties: { source: { type: 'string' }, fuel: { type: 'string', description: 'optional: raise the interpreter step cap above the 4e9 default, as a decimal string (e.g. "20000000000")' } }, required: ['source'] } },

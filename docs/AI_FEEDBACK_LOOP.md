@@ -1,6 +1,8 @@
 # The AI-Authorship Feedback Loop
 
-Status: draft v0.1.
+Status: draft v0.1 for the full `AuthorFeedback` schema and triage pipeline (sections 1, 2, 4, 6
+below are not yet built); section 3's authorship benchmark has a first real pilot entry as of
+2026-07-24 - see `bench/authorship/`, honest results included, not just the design.
 
 Lumen is written by AI, used by AI, and, distinctively, **continuously improved from the measured experience of the AI writing it**. Most languages evolve from human complaints in issue trackers. Lumen adds a structured, always-on channel where the AI author (Claude, and any other agent) reports its authoring experience as data, and that data drives language, diagnostic, and tooling changes. The goal stated by the project owner: tune Lumen to the maximum of Claude's capabilities, and keep it tuned as those capabilities change.
 
@@ -139,7 +141,7 @@ What starts as "improve Lumen for Claude" generalizes. Every agent that authors 
 
 This loop starts early and cheaply:
 
-- The `AuthorFeedback` schema and the `bench/authorship/` corpus can be defined during Phase 0 and 1 (they are spec and data, not compiler internals).
+- The `AuthorFeedback` schema and the `bench/authorship/` corpus can be defined during Phase 0 and 1 (they are spec and data, not compiler internals). `bench/authorship/` itself now exists with a first task and a real, honestly-reported pilot run (2026-07-24); the `AuthorFeedback` structured-record schema and automated triage pipeline (sections 1, 2, 4) are still design, not yet implemented - the pilot's results are hand-written markdown, not yet emitted as structured records.
 - Passive telemetry attaches once the front end and diagnostics exist (Phase 1 to 2).
 - The regression gate becomes meaningful once programs run (Phase 3) and is wired into the benchmark from then on.
 - The `/lumen` Claude Code skill ships alongside the first usable toolchain (Phase 5) and is the primary active-feedback vehicle.

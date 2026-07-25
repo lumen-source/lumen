@@ -1,0 +1,31 @@
+fn norm_cdf(x: Float) -> Float {
+  let t = 1.0 / (1.0 + 0.2316419 * abs(x))
+  let poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))))
+  let pdf = exp(-x * x / 2.0) / sqrt(2.0 * 3.141592653589793)
+  let upper_tail_n = 1.0 - pdf * poly
+  if x >= 0.0 {
+    return upper_tail_n
+  } else {
+    return 1.0 - upper_tail_n
+  }
+}
+
+fn call_price(s: Float, k: Float, r: Float, t: Float, sigma: Float) -> Float {
+  let d1 = (ln(s / k) + (r + 0.5 * sigma * sigma) * t) / (sigma * sqrt(t))
+  let d2 = d1 - sigma * sqrt(t)
+  return s * norm_cdf(d1) - k * exp(-r * t) * norm_cdf(d2)
+}
+
+fn main(console: Console) -> Unit {
+  let p1 = call_price(100.0, 100.0, 0.05, 1.0, 0.20)
+  console.print_int(round(p1 * 10000.0))
+
+  let p2 = call_price(100.0, 110.0, 0.05, 1.0, 0.20)
+  console.print_int(round(p2 * 10000.0))
+
+  let p3 = call_price(100.0, 90.0, 0.05, 0.5, 0.30)
+  console.print_int(round(p3 * 10000.0))
+
+  let p4 = call_price(50.0, 50.0, 0.02, 2.0, 0.25)
+  console.print_int(round(p4 * 10000.0))
+}

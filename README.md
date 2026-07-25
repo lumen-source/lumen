@@ -44,6 +44,7 @@ in one command. If you are an AI agent working this repo, read [`AGENTS.md`](AGE
 - [`RULES.md`](RULES.md): the operating laws and the canonical metric names.
 - [`bench/scoreboard.json`](bench/scoreboard.json) and [`bench/DASHBOARD.md`](bench/DASHBOARD.md): the live verdicts and numbers.
 - [`bench/vs-lang/SCOREBOARD.md`](bench/vs-lang/SCOREBOARD.md): matched-kernel timings against real C, Rust, and Python, gated on byte-identical output across all four first.
+- [`bench/authorship/README.md`](bench/authorship/README.md): the `tokens-to-green` corpus - real, honestly-reported measurements of what it costs an AI author to go from a prompt to a passing program in Lumen versus other languages. This, not raw execution speed, is the actual claim (`VISION_2036.md` row 9, `RULES.md`'s single sentence): `bench/vs-lang/` shows parity with C and Rust, not a blowout - the moat is being the shortest, clearest, most trustworthy path from a prompt to a proven-correct program, for a model writing it.
 - [`tools/absorb/README.md`](tools/absorb/README.md): the oracle-gated contract for absorbing foreign (Python, C, C++) functions with a live, executed, sha-pinned oracle.
 - [`docs/SIMD_AUTOVECTORIZATION_PLAN.md`](docs/SIMD_AUTOVECTORIZATION_PLAN.md): what Lumen gets for free from clang/LLVM's own auto-vectorizer today, and the staged plan for closing the rest of the gap.
 - [`SELFHOST_CAMPAIGN_LOG.md`](SELFHOST_CAMPAIGN_LOG.md) and [`docs/VELOCITY_LEDGER.md`](docs/VELOCITY_LEDGER.md): the receipts.
