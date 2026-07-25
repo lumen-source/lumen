@@ -367,12 +367,14 @@ async function emitLlvmFromSource(src) {
 // clang -O2 -> execute. The compiler, optimizer, and emitter are all Lumen programs; the same
 // toolchain rebuilds itself bit-identically (native/native_fixpoint_test.mjs gates it in CI).
 //
-// Prefers the resident-compiler path (buildAndRunFnResident, pipeline.mjs): an MCP server is a
-// long-running process serving many tool calls over its lifetime, so a warm resident compiler
-// that only pays process-spawn cost once (not per call) is a genuine, real speedup here, the
-// same mechanism proven in native/lumend_native_test.mjs. Falls back to the plain buildAndRunFn
-// (fresh compile, no resident reuse) on ANY error from the resident path - this must never make
-// lumen_run_native less reliable than it was, only faster when the resident path is healthy.
+// Prefers the resident-compiler + build-cache path (buildAndRunFnResident, pipeline.mjs): an MCP
+// server is a long-running process serving many tool calls over its lifetime, so a warm resident
+// compiler (pays process-spawn cost once, not per call, the same mechanism proven in
+// native/lumend_native_test.mjs) and a content-addressed build cache (skip `clang` entirely on a
+// repeat of the same emitted C - the dominant cost for these small kernels, see build_cache.mjs's
+// header) are both genuine, real speedups here. Falls back to the plain buildAndRunFn (fresh
+// compile, no resident reuse, no cache) on ANY error from the resident path - this must never make
+// lumen_run_native less reliable than it was, only faster when healthy.
 async function runNativeFromSource(src) {
   const c = await checkAuto(lumen, src);
   if (!c.ok) return { ok: false, diagnostics: buildDiagnostics(c.rawDiags, src) };
@@ -385,7 +387,7 @@ async function runNativeFromSource(src) {
     r = await buildAndRunFn(src, '-O2');
   }
   const totalMs = performance.now() - t0;
-  return { ok: r.exit === 0, stdout: r.stdout, exit: r.exit, totalMs: Math.round(totalMs * 10) / 10, usedResident };
+  return { ok: r.exit === 0, stdout: r.stdout, exit: r.exit, totalMs: Math.round(totalMs * 10) / 10, usedResident, cacheHit: !!r.cacheHit };
 }
 
 const TOOLS = [
@@ -413,7 +415,7 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { source: { type: 'string' } }, required: ['source'] } },
   { name: 'lumen_emit_c', description: 'The native C source the Lumen C-emitter (emit_fn.lm) produces for this program. The emitter is itself a Lumen program run on the seed.',
     inputSchema: { type: 'object', properties: { source: { type: 'string' } }, required: ['source'] } },
-  { name: 'lumen_run_native', description: 'Compile and run Lumen source through the SELF-COMPILED native toolchain: IR -> Lumen optimizer -> emit_fn.lm C -> clang -O2 -> execute the binary. Returns stdout, exit code, total wall ms, and usedResident (true when the warm resident compiler served the IR-compile step, avoiding a fresh process spawn there - falls back automatically, never fails just because the resident path is unhealthy). Measured effect on total wall time is small (clang\'s own compile-and-execute dominates this tool\'s cost, not the IR-compile step); lumen_check already uses the resident path and sees a larger win since it skips clang entirely. The compiler, optimizer, and emitter are all Lumen programs, and the same toolchain rebuilds itself bit-identically (the native fixpoint, gated in CI).',
+  { name: 'lumen_run_native', description: 'Compile and run Lumen source through the SELF-COMPILED native toolchain: IR -> Lumen optimizer -> emit_fn.lm C -> clang -O2 -> execute the binary. Returns stdout, exit code, total wall ms, usedResident (true when the warm resident compiler served the IR-compile step, falling back automatically on any error), and cacheHit (true when the emitted C had already been built before, so the `clang` invocation itself was skipped). What each flag is actually worth: usedResident alone moves total wall time only slightly, because clang\'s own compile-and-execute dominates this tool\'s cost rather than the IR-compile step; cacheHit is the one that matters here, because it skips clang entirely on a repeat of the same or lightly-edited source. Diagnostics if it does not compile. The compiler, optimizer, and emitter are all Lumen programs, and the same toolchain rebuilds itself bit-identically (the native fixpoint, gated in CI).',
     inputSchema: { type: 'object', properties: { source: { type: 'string', description: 'Lumen (.lm) source' } }, required: ['source'] } },
   { name: 'lumen_emit_llvm', description: 'The LLVM IR the Lumen LLVM-emitter (emit_llvm.lm) produces for this program. The emitter is itself a Lumen program run on the seed.',
     inputSchema: { type: 'object', properties: { source: { type: 'string' } }, required: ['source'] } },

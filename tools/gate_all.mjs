@@ -116,7 +116,7 @@ const NATIVE_SCRIPTS = [
   'native_float_test.mjs', 'native_decimal_test.mjs', 'native_buffered_stdout_test.mjs',
   'llvm_diff.mjs', 'llvm_float_test.mjs', 'llvm_decimal_test.mjs', 'decimal_oracle_test.mjs',
   'standalone_diff.mjs', 'heapcap_test.mjs', 'fixpoint_emit_test.mjs', 'native_compile_test.mjs',
-  'native_pipeline_test.mjs', 'native_fixpoint_test.mjs', 'bootstrap_test.mjs',
+  'native_pipeline_test.mjs', 'build_cache_test.mjs', 'native_fixpoint_test.mjs', 'bootstrap_test.mjs',
   'emitter_bootstrap_test.mjs', 'parity_corpus_test.mjs', 'selfcompile_diff.mjs',
   'arm64_spike_check.mjs', 'state_eventlog_test.mjs', 'analytics_events_test.mjs',
   'native_handlers_test.mjs', 'native_socket_test.mjs', 'fuel_test.mjs', 'tenant_routing_test.mjs',
