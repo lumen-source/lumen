@@ -1,7 +1,7 @@
-# SABR (Hagan) and rough-volatility IV kernels: native Lumen ports of the
-# volatility_surface.js primitives that power beta-app.fdv-quants.com/volatility-surface
-# (SABR Model, Rough Bergomi, Rough Heston tabs). Companion to vol_surface_heston.lm.
-# Probes vs the exact JS oracle, IV scaled x1e12:
+# SABR (Hagan) and rough-volatility IV kernels in native Lumen: the SABR asymptotic
+# formula plus rough Bergomi / rough Heston variants built on a Heston core.
+# Companion to vol_surface_heston.lm.
+# Reference oracle these kernels must reproduce, IV scaled x1e12:
 #   SABR  (S=100 r=.045 sigma0=.2 alpha=.35 beta=.5 rho=-.7): K70_T.25=62655898705 K85_T.5=42827773965
 #   ROUGH (S=100 r=.045 H=.1 xi0=.05 nu=.3 rho=-.7 lam=1):    K70_T.25=211900577088 K85_T.5=233179706005
 

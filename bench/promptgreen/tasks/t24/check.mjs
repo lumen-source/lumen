@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { createCompiler } from '/Users/freedom/lumen-source/lumen/seed/compiler_core.mjs';
+import { createCompiler } from '../../../../seed/compiler_core.mjs';
 import { run as hiddenRun } from './hidden_tests.mjs';
 
 const compiler = await createCompiler();

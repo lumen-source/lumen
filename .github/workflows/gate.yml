@@ -132,3 +132,11 @@ jobs:
           # absorbed kernel against its FROZEN oracle outputs and sha pins, no Python needed.
           node tools/absorb/absorb_selftest.mjs
           node tools/absorb/absorb_gate.mjs
+      - name: boundary gate (no private identifiers in a public repo)
+        working-directory: .
+        run: |
+          # --self first: every forbidden pattern in boundary_gate.mjs is assembled from
+          # fragments so the gate can scan its own source without self-matching. --self proves
+          # that construction still holds, so the one file nobody checks is checked too.
+          node tools/boundary_gate.mjs --self
+          node tools/boundary_gate.mjs

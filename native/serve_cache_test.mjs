@@ -3,14 +3,15 @@
 // clang on every call.
 //
 // Root cause this closes (2026-07-24, direct instrumentation, not a guess - see the comment
-// above buildNativeServeCached in lumen_serve_native.mjs): every Lumen-edge Cloud Run service
-// calls runServer(cfgPath) twice against the IDENTICAL cfgPath - once during the Docker image's
-// build-time warmup RUN step, once again at every runtime cold start (the CMD). Before this
-// cache, both invocations independently ran the full emit_fn.lm -> C -> clang -O2 pipeline, so
-// every cold start paid a fresh compile; the transient memory that compile needs OOM-killed a
-// 256Mi container in production (measured ~345 MiB used against the limit).
+// above buildNativeServeCached in lumen_serve_native.mjs): a static site served this way on a
+// scale-to-zero container platform calls runServer(cfgPath) twice against the IDENTICAL cfgPath
+// - once during the Docker image's build-time warmup RUN step, once again at every runtime cold
+// start (the CMD). Before this cache, both invocations independently ran the full emit_fn.lm ->
+// C -> clang -O2 pipeline, so every cold start paid a fresh compile; the transient memory that
+// compile needs OOM-killed a 256Mi container in production (measured ~345 MiB used against the
+// limit).
 //
-// This test proves, without touching Cloud Run: (1) a fresh cfgPath produces a cache MISS and a
+// This test proves, without deploying anything: (1) a fresh cfgPath produces a cache MISS and a
 // cache file, (2) calling it again with byte-identical inputs produces a cache HIT that reuses
 // the exact same binary file (same path, unchanged mtime - i.e. clang did NOT run again), and
 // (3) the two binaries, if independently rebuilt, would in fact be byte-identical (determinism),
