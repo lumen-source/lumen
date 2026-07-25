@@ -1,0 +1,9 @@
+fn main(c: Console, r: Read) -> Unit {
+  let line = r.read_line("fixtures/test_input.txt")
+  c.print(line)
+  c.print("
+---
+")
+  let full = r.read_file("fixtures/test_input.txt")
+  c.print(full)
+}

@@ -348,6 +348,8 @@ eq('read_file stub executes without throwing', typeof read_file('nonexistent.txt
 eq('read_line stub executes without throwing', typeof read_line('nonexistent.txt'), 'string');
 eq('pipeline read_file stub executes without throwing', typeof readFilePipe('nonexistent.txt'), 'string');
 eq('pipeline read_line stub executes without throwing', typeof readLinePipe('nonexistent.txt'), 'string');
+eq('lumen.run executes read_file capability', L.run('fn main(c: Console, r: Read) -> Unit {\n  let s = r.read_file("nonexistent.txt")\n  c.print(s)\n}\n').stdout, '');
+eq('lumen.run executes read_line capability', L.run('fn main(c: Console, r: Read) -> Unit {\n  let s = r.read_line("nonexistent.txt")\n  c.print(s)\n}\n').stdout, '');
 // R5 KNOWN GAP (same class as above): lumenc.lm's grouping-expression error recovery does not
 // yet catch these two malformed shapes the wasm seed catches (a bad token inside parens; an
 // empty-grouping return() in a non-Unit function) - verified nerr=0 on the native compiler for
@@ -447,7 +449,7 @@ eq('early return from Unit function', runFull('fn f(x: Int, c: Console) -> Unit 
 deepEq('negative: non-Unit function returning () (KNOWN GAP: see above)', codesOf('fn f(x: Int) -> Int { return () }\n'), []);
 deepEq('negative: non-Unit function let binding () (KNOWN GAP: see above)', codesOf('fn f(x: Int) -> Int { let x = () }\n'), []);
 deepEq('Unit function let binding ()', codesOf('fn f(x: Int) -> Unit { let x = () }\n'), []);
-deepEq('lumenc.lm compiles clean', codesOf(fs.readFileSync('lumenc.lm', 'utf8')), []);
+deepEq('lumenc.lm compiles clean', codesOf(fs.readFileSync(fs.existsSync('seed/lumenc.lm') ? 'seed/lumenc.lm' : 'lumenc.lm', 'utf8')), []);
 
 // ---- token capacity ----
 {
