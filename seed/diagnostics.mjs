@@ -45,10 +45,92 @@ function lineCol(source, off) {
   return { line, col };
 }
 
+function findUnknownTopLevelDiags(source) {
+  if (!source) return [];
+  const diags = [];
+  let i = 0;
+  const len = source.length;
+  let braceDepth = 0;
+
+  while (i < len) {
+    while (i < len && (source[i] === ' ' || source[i] === '\t' || source[i] === '\r' || source[i] === '\n')) {
+      i++;
+    }
+    if (i >= len) break;
+
+    if (source[i] === '#' || (source[i] === '/' && source[i + 1] === '/')) {
+      while (i < len && source[i] !== '\n') i++;
+      continue;
+    }
+
+    if (braceDepth > 0) {
+      if (source[i] === '{') {
+        braceDepth++;
+        i++;
+      } else if (source[i] === '}') {
+        braceDepth--;
+        i++;
+      } else if (source[i] === '"') {
+        i++;
+        while (i < len && source[i] !== '"') {
+          if (source[i] === '\\') i++;
+          i++;
+        }
+        if (i < len) i++;
+      } else {
+        i++;
+      }
+      continue;
+    }
+
+    if (source[i] === '}') {
+      diags.push({ code: 3, byteOff: i, byteLen: 1, name: '}' });
+      i++;
+      continue;
+    }
+
+    const start = i;
+    if (/[a-zA-Z_]/.test(source[i])) {
+      while (i < len && /[a-zA-Z0-9_]/.test(source[i])) i++;
+      const word = source.slice(start, i);
+      if (word === 'fn') {
+        while (i < len && source[i] !== '{' && source[i] !== '\n') {
+          if (source[i] === '#' || (source[i] === '/' && source[i + 1] === '/')) {
+            while (i < len && source[i] !== '\n') i++;
+            break;
+          }
+          i++;
+        }
+        if (i < len && source[i] === '{') {
+          braceDepth = 1;
+          i++;
+        }
+      } else if (word === 'type') {
+        while (i < len && source[i] !== '\n' && source[i] !== '{') i++;
+        if (i < len && source[i] === '{') {
+          braceDepth = 1;
+          i++;
+        }
+      } else {
+        diags.push({ code: 3, byteOff: start, byteLen: word.length, name: word });
+      }
+    } else {
+      diags.push({ code: 3, byteOff: start, byteLen: 1, name: source[i] });
+      i++;
+    }
+  }
+
+  return diags;
+}
+
 // Build the structured diagnostics from raw compiler records + the source text.
 // Each diagnostic: { code, sev, line, col, span:[start,end], msg, name?, fix?:{span,text} }.
 export function buildDiagnostics(rawDiags, source) {
-  return rawDiags.map(d => {
+  let diags = rawDiags;
+  if ((!diags || diags.length === 0) && source) {
+    diags = findUnknownTopLevelDiags(source);
+  }
+  return diags.map(d => {
     const reg = REGISTRY[d.code] || UNKNOWN;
     let span, fix, anchor;
     if (reg.fix === 'insert-brace') {              // position at end of input

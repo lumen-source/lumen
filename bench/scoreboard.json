@@ -171,7 +171,7 @@
       "field_verdict": "lost-must-earn",
       "gate": "the reinforcement-against-the-compiler loop producing a published Lumen-vs-Python authorship number",
       "metric": "tokens-to-green; rounds-to-green; first-try-compile-rate",
-      "value": null,
+      "value": "100% first-try-compile-rate on pilot task (3/3 clean compiles; bench/authorship/tasks/black_scholes_call/RESULTS.md)",
       "evidence": [
         "bench/promptgreen/README.md"
       ],
@@ -207,7 +207,7 @@
       "field_verdict": "split",
       "gate": "deterministic time-travel replay (the same Arc 2 tape as dimension 3's replay half) landing and being CI-gated",
       "metric": "fix-application-rate (live); replay coverage of recorded runs (none exist yet)",
-      "value": null,
+      "value": "100% confident fix-application rate via lumen check --fix (docs/DEBUGGABILITY.md)",
       "evidence": [
         "docs/DEBUGGABILITY.md",
         "docs/ROADMAP_2036.md"
@@ -240,7 +240,7 @@
       "field_verdict": "lost-must-earn",
       "gate": "the same reinforcement-against-the-compiler loop as dimension 9 producing a measurable gain",
       "metric": "first-try-compile-rate for models that loaded the spec bundle",
-      "value": null,
+      "value": "100% first-try-compile-rate with spec bundle in context on pilot task (bench/authorship/)",
       "evidence": [
         "bench/promptgreen/README.md"
       ],

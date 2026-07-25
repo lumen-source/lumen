@@ -293,6 +293,10 @@ eq('subtracting a negative',      runMain('c.print_int(3 - -7)'), '10\n');
 deepEq('E0001 unknown variable', codesOf('fn main(c: Console) -> Unit {\n  c.print_int(zzz)\n}\n'), ['E0001:zzz']);
 deepEq('E0002 unknown function', codesOf('fn main(c: Console) -> Unit {\n  c.print_int(nope(1))\n}\n'), ['E0002:nope']);
 deepEq('E0003 unexpected token', codesOf('fn main(c: Console) -> Unit {\n  @\n}\n'), ['E0003:@']);
+deepEq('E0003 unknown top-level token import', codesOf('import foo\nfn main(c: Console) -> Unit {}\n'), ['E0003:import', 'E0003:foo']);
+deepEq('E0003 unknown top-level token unexpected keyword class', codesOf('class Foo\n'), ['E0003:class', 'E0003:Foo']);
+deepEq('E0003 unknown top-level token after fn', codesOf('fn main(c: Console) -> Unit {}\nimport foo\n'), ['E0003:import', 'E0003:foo']);
+deepEq('E0003 unknown top-level let statement', codesOf('let x = 1\n'), ['E0003:let', 'E0003:x', 'E0003:=', 'E0003:1']);
 // R5 FIX (found and fixed during the same investigation, not merely wasm rewiring): lumenc.lm's
 // c_block() had NO EOF check at all (verified: it looped on tk(get_tp())==6 unbounded), unlike
 // the wasm seed, which checks tk(tp)==14 (the lexer's own EOF sentinel token - lumenc.lm's

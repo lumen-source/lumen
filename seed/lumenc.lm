@@ -1,37 +1,11 @@
 # lumenc.lm: The self-hosted Lumen compiler!
-# Memory map mirrors the seed's proven layout (SRC 100000, SYMBOLS 170000, params/locals
-# 177000/177500, FIXUPS 178000, TOKENS 299000, literal heap 488000) so a self-compile fits;
-# only CODE (211328) differs, because the seed's CODE_BASE holds this compiler's own IR.
-# The literal heap at 488000 is PINNED: it is baked into every compiled program's IR as an
-# absolute address, so it must never move. SRC is a hard 70000-byte cap and this file's own
-# comments spend it, so the history of how each region was sized (D4, GAP-A's silent token
-# clobber, the LOCALS and DIAG budgets) lives in docs/SEED_MEMORY_MAP.md. Read that before
-# moving any number here. Bit-identity gates: native_fixpoint_test.mjs, selfhost_diff.mjs.
+# Region table below; full memory map narrative & region sizing live in docs/SEED_MEMORY_MAP.md.
+# Bit-identity gates: native_fixpoint_test.mjs, selfhost_diff.mjs.
 fn SRC() -> Int { return 100000 }
 fn TOKENS() -> Int { return 299000 }
 fn SYMBOLS() -> Int { return 170000 }
 fn PARAMS() -> Int { return 177000 }
-# LOCALS (D6, GAP-A prefix-bisect find): entries are 8 bytes (name_off, name_len), get_nlocal()
-# resets to 0 at the start of EVERY function (c_fn, set_nlocal(0)) and never shrinks again until
-# the next fn - so its true capacity requirement is "however many distinct `let`/`var` bindings
-# the single largest function in any toolchain source declares", not a whole-program budget.
-# The old span [177500,178000) = 500 bytes = 62 slots was fine for ordinary functions but
-# native/emit_llvm.lm's emit_op() (one giant per-opcode dispatch, ~70 `if op == N` arms sharing
-# one function body) declares 163 distinct locals across its lifetime. Slot 63 onward silently
-# overran into FIXUPS' own (pos, off, len) records starting at the old 178000, corrupting
-# in-flight fixups with garbage (off, len) pairs that -- by coincidence, since a local's own
-# (off, len) IS a valid-looking (off, len) once misread as a fixup record's tail -- decoded as
-# plausible-looking but bogus forward-reference names ('reg2', 'hi', 'rshift', 'rovf', ...),
-# so resolve_fixups's sym_find() correctly failed to find a "function" by that name and emitted
-# a real but SPURIOUS E0002 "unknown function" for each one (68 on the actual file; the found
-# minimal repro is emit_llvm.lm's emit_op alone). Symptom only appears on this one huge function
-# because none of the toolchain's other functions declare anywhere near 62 locals - the earlier
-# GAP-A tests never exercised this ceiling.
-# Fix: widen LOCALS to 4000 bytes (500 slots, +207% over the 163 high-water mark) by pushing
-# FIXUPS from 178000 to 181500 - FIXUPS's real ceiling is CODE at 211328 (not TOKENS, which
-# sits much further out at 299000, past CODE/VARIANTS/PTYPES/etc.), so [181500,211328) =
-# 29828 bytes = 2485 fixup slots is still enormous headroom versus the dozens any file
-# actually needs, and nothing downstream of FIXUPS had to move.
+# LOCALS: 8 bytes per entry (name_off, name_len); resets per fn. Sizing details in docs/SEED_MEMORY_MAP.md.
 fn LOCALS() -> Int { return 177500 }
 fn FIXUPS() -> Int { return 181500 }
 fn CODE() -> Int { return 211328 }
@@ -46,14 +20,7 @@ fn VARIANT_ERR_LIT() -> Int { return 291010 }
 fn PTYPES() -> Int { return 292000 }
 fn LTYPES() -> Int { return 293000 }
 fn RETTYPES() -> Int { return 294000 }
-# record tables, mirroring the seed's GLOBAL field model: fields are numbered by NAME across
-# all record types, first registration wins (index AND type). FIELDS entries are
-# (name_off, name_len, ftype) x 12 bytes, the entry position IS the global field index.
-# RECTYPES entries are (name_off, name_len, arity) x 12 bytes, where arity is
-# max(global index of the type's own fields) + 1 - the array size a construction allocates.
-# (Trimmed from the pre-GAP-A 14000-byte/1166-entry size to 1000 bytes/83 entries: still far
-# more record types than any toolchain source declares, and the reclaimed 13000 bytes goes to
-# TOKENS above.)
+# Record tables: FIELDS (12 bytes/entry) and RECTYPES (12 bytes/entry). See docs/SEED_MEMORY_MAP.md.
 fn FIELDS() -> Int { return 295000 }
 fn RECTYPES() -> Int { return 296000 }
 
@@ -1127,27 +1094,12 @@ fn float_bits_of(v: Float) -> Unit {
   set_fhi((e + 1023) * 1048576 + hi20)
 }
 
-# i64::MAX (9223372036854775807), built from three literals each well under 2^31. This
-# compiler's OWN source is compiled by the seed, whose lexer accumulates an Int literal's
-# digits into a 32-bit local ($val in $lex) -- a pre-existing, D1-discovered bug (tracked
-# separately, unrelated to Dec) that silently truncates any literal written directly in
-# source past ~2.1e9. Writing 9223372036854775807 literally here would be miscompiled by the
-# seed itself before dec_value ever ran. Built instead via runtime Int arithmetic (unaffected
-# by the bug, which is lexer-only) on three safe factors: (9*1e9 + 223372036) * 1e9 + 854775807.
+# i64::MAX (9223372036854775807), built via arithmetic to avoid seed 32-bit lexer truncation.
 fn i64_max() -> Int {
   return (9 * 1000000000 + 223372036) * 1000000000 + 854775807
 }
 
-# Parse a Dec literal's digit span (off, len; NOT including the trailing 'd' suffix) into an
-# EXACT i64 scaled by 1_000_000, mirroring $parse_dec_literal in lumenc.wat exactly: pure
-# integer accumulation (no Float intermediate -- exactness is the whole point of Dec, same
-# argument as the seed's own comment), same two errors (5: >6 fractional digits, 6: literal
-# magnitude does not fit in i64 after scaling), same 0 fallback so a bad literal never aborts
-# the compiler. Diagnostics are not part of the emitted-IR bit-identity contract
-# (err_add writes to the DIAG region, never read by selfhost_diff's comparison), so this
-# reuses the seed's numeric codes for consistency but does not attempt to reproduce its
-# byte-precise diagnostic *positions* (the seed anchors on the literal's own span; this
-# passes (off, len) too, which is as precise as lumenc.lm's own diagnostics get anywhere).
+# Parse Dec literal's digit span into an EXACT i64 scaled by 1_000_000. See docs/SEED_MEMORY_MAP.md.
 fn dec_value(off: Int, len: Int) -> Int {
   var i = 0
   var d = 0
@@ -1254,18 +1206,7 @@ fn lex(srclen: Int) -> Unit {
             if isfloat == 1 {
               tokset(n, 30, SRC() + dstart, i - dstart)
             } else {
-              # Bug #25: `val` is already the correct 64-bit Int (Lumen's Int is i64 end to
-              # end; the loop above never truncates) - the truncation used to happen only in
-              # tokset's own store32 when writing it to the token's `a` field. Fix: a literal
-              # that fits i32 (the overwhelming majority) keeps the exact single-tokset call
-              # (kind 2, a=value, b=0) so every existing golden/census program still compiles
-              # to byte-identical IR (no regolding). A literal outside i32 range gets a new
-              # token kind (32) carrying its low/high 32-bit halves: `val` passed straight
-              # through (tokset's store32 keeps only its low 32 bits, exactly the "lo" half),
-              # and `shr(val, 32)` (the same builtin the Dec literal path just above already
-              # uses for its own hi half) supplies the high half explicitly. c_primary
-              # reconstructs the i64 constant from those halves using only existing opcodes
-              # (PUSH/SHL/SHR/BOR) - zero new opcodes.
+              # Bug #25: i32 literals use kind 2; literals outside i32 use kind 32 (hi/lo halves).
               if val > 2147483647 {
                 tokset(n, 32, val, shr(val, 32))
               } else {
@@ -1438,15 +1379,7 @@ fn c_primary() -> Unit {
     return ()
   }
   if k == 32 {
-    # Bug #25: BigInt literal (magnitude past i32 range). Reconstruct the i64 constant from
-    # its low/high 32-bit halves (token fields a, b) using only existing opcodes - PUSH/SHL/
-    # SHR/BOR - so no new opcode is introduced. hi is always <= 0x7FFFFFFF (source magnitudes
-    # are capped at 2^63-1; negation is a separate unary op), so PUSHing it never hits PUSH's
-    # sign-extension edge case. lo may have its own top bit set, so PUSH lo; PUSH 32; SHL
-    # discards whatever sign-extension garbage PUSH produced (shifted out of the low 64 bits,
-    # standard wrapping shift), then PUSH 32; SHR (logical/unsigned - verified identical
-    # across all four engines: this compiler's own bytecode interpreter port, the C emitter,
-    # the LLVM emitter) zero-extends lo back down before BOR-ing it with hi<<32.
+    # Bug #25: BigInt literal: reconstruct i64 constant from hi/lo halves using PUSH/SHL/SHR/BOR.
     let hi = tb(get_tp())
     let lo = ta(get_tp())
     emitw(1)
@@ -1851,16 +1784,7 @@ fn emit_cmp(lt: Int, intop: Int, fop: Int) -> Unit {
   set_etype(3)
 }
 
-# ---- Dec (D4): parallel to emit_arith/emit_cmp above, gated at each call site by "is
-# either operand Dec" (emit_arith2/emit_cmp2 below) so the Int/Float paths above run
-# byte-for-byte unchanged when Dec is not involved -- same discipline as D1's WAT and D2's
-# C emitter: a new parallel path, not a modification of the well-tested existing one.
-#
-# Int-side coercion to Dec (DFROMI, op 65) converts only TOS, mirroring I2F (op 30). When
-# the Int operand is the value UNDER TOS instead (lhs Int, rhs Dec -- stack is [lhs, rhs]),
-# there is no DFROMIU: this reuses the tmp_local scratch-slot shuffle (SETLOCAL tmp / DFROMI
-# / GETARG tmp) exactly as the seed's own emitter does, producing the identical IR sequence
-# op-for-op (verified by selfhost_diff's bit-identical comparison, not just by inspection).
+# Dec (D4): Parallel emit for Dec operands with DFROMI / tmp_local scratch slot shuffle. See docs/SEED_MEMORY_MAP.md.
 fn emit_dec_arith(lt: Int, decop: Int, opoff: Int, oplen: Int) -> Unit {
   let rt = get_etype()
   if lt == 1 or rt == 1 {

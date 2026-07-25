@@ -17,7 +17,7 @@ memory-map comment block trimmed from roughly 2949 bytes to 1650 to make room fo
 | `SRC` | 100000 | 70000 bytes. The self-hosted compiler's own source must fit here |
 | `SYMBOLS` | 170000 | |
 | `PARAMS` / `LOCALS` | 177000 / 177500 | |
-| `FIXUPS` | 178000 | |
+| `FIXUPS` | 181500 | |
 | `CODE` | 211328 | The only region that differs from the seed, because the seed's `CODE_BASE` holds this compiler's own IR |
 | `DIAG` | 297000 | Ends at 299000, so exactly 166 twelve-byte records. See "The DIAG cap" below |
 | `TOKENS` | 299000 | 189000 bytes, 15750 tokens |
@@ -62,7 +62,43 @@ largest function in any toolchain source declares", not a whole-program budget.
 
 The old span `[177500,178000)`, 500 bytes and therefore 62 slots, was fine for ordinary
 functions. `native/emit_llvm.lm`'s `emit_op()` is not an ordinary function: it is one giant
-per-opcode dispatch with roughly 70 `if op == N` arms sharing a flat binding scope.
+per-opcode dispatch with roughly 70 `if op == N` arms sharing a flat binding scope, declaring 163
+distinct locals across its lifetime.
+
+Slot 63 onward silently overran into `FIXUPS`' own (pos, off, len) records starting at the old 178000,
+corrupting in-flight fixups with garbage (off, len) pairs that decoded as plausible-looking but
+bogus forward-reference names ('reg2', 'hi', 'rshift', ...), causing `resolve_fixups`'s `sym_find()`
+to fail and emit spurious E0002 errors.
+
+Fix: LOCALS was widened to 4000 bytes (500 slots, +207% over high-water mark) by pushing `FIXUPS`
+from 178000 to 181500. `FIXUPS`'s ceiling is `CODE` at 211328, giving 2485 fixup slots.
+
+## Record Tables (`FIELDS` and `RECTYPES`)
+
+Record tables mirror the seed's global field model: fields are numbered by NAME across all record
+types, first registration wins (index and type). `FIELDS` entries are 12 bytes `(name_off, name_len, ftype)`.
+`RECTYPES` entries are 12 bytes `(name_off, name_len, arity)`. Trimmed from pre-GAP-A 14000 bytes to
+1000 bytes (83 entries) to reclaim space for `TOKENS`.
+
+## Seed Lexer 32-bit Truncation Bug (`i64::MAX`)
+
+The seed's lexer accumulates Int literal digits into a 32-bit local ($val in $lex), silently truncating
+literals past ~2.1e9. In `seed/lumenc.lm`, `i64::MAX` (9223372036854775807) is constructed via runtime Int
+arithmetic: `(9 * 1e9 + 223372036) * 1e9 + 854775807` to avoid lexer truncation by the seed.
+
+## Bug #25: 64-bit Integer Literals
+
+Lumen Ints are 64-bit end-to-end. Truncation previously occurred when store32 wrote to token field `a`.
+Literals within 32-bit signed range keep single-tokset (kind 2, `a=val`, `b=0`). Literals outside i32 range
+use token kind 32 carrying low/high 32-bit halves (`a=lo`, `b=hi`). `c_primary` reconstructs the 64-bit constant
+using `PUSH`, `SHL`, `SHR`, and `BOR` without introducing new opcodes.
+
+## Dec Literal Parsing and Arithmetic Emission (D4)
+
+Dec literals parse digits into an exact i64 scaled by 1,000,000 without Float intermediate.
+Diagnostic codes match the seed's numeric codes (5: >6 frac digits, 6: overflow).
+`emit_arith` / `emit_cmp` Dec paths run in parallel to Int/Float paths, converting TOS via `DFROMI`
+(op 65) or using `tmp_local` scratch slot shuffle for LHS Int / RHS Dec.
 
 ## The DIAG cap
 
@@ -84,3 +120,4 @@ is the one that matters.
 Condense comments before adding logic, and prefer moving narrative into this file over deleting
 it. The region table at the top of `lumenc.lm` should stay inline, because that is what a reader
 needs while editing the compiler; the history of how each number was chosen belongs here.
+
