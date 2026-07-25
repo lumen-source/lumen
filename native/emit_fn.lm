@@ -1,3 +1,4 @@
+# Module lumenc_emit: Lumen compiler separate module for code generation and C emission.
 # Injected-IR + emit scratch live in a high block at 2MB, well ABOVE the seed VM's Text
 # heap (bump-allocated from 488000). emit_fn's `num` allocates a Text per number and never
 # frees it (no GC), so on a compiler-sized program the heap climbs past page 9 (524288); if

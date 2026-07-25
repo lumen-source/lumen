@@ -3,7 +3,7 @@
 // compiler behavior in isolation, so a change that breaks one basic fails one named test
 // instead of a tangle of examples. Fast: one warm compiler for the whole run.
 // Usage: node basics.mjs
-import { createCompiler, isCapabilityType, read_file, read_line, OPS } from './compiler_core.mjs';
+import { createCompiler, isCapabilityType, read_file, read_line, OPS, COMPILER_MODULES, isCompilerModule } from './compiler_core.mjs';
 import { isCapabilityType as isCapPipe, read_file as readFilePipe, read_line as readLinePipe } from '../native/pipeline.mjs';
 import { buildDiagnostics, applyFixes } from './diagnostics.mjs';
 import fs from 'node:fs';
@@ -343,6 +343,13 @@ eq('compiler_core exports READLINE opcode', OPS[72], 'READLINE');
 eq('isCapabilityType recognizes Console', isCapabilityType('Console'), true);
 eq('isCapabilityType recognizes Read', isCapabilityType('Read'), true);
 eq('isCapabilityType rejects unknown type', isCapabilityType('Int'), false);
+eq('COMPILER_MODULES contains lumenc_core and lumenc_emit', COMPILER_MODULES.includes('lumenc_core') && COMPILER_MODULES.includes('lumenc_emit'), true);
+eq('isCompilerModule recognizes lumenc_core', isCompilerModule('lumenc_core'), true);
+eq('isCompilerModule recognizes lumenc_emit', isCompilerModule('lumenc_emit'), true);
+deepEq('import lumenc_core compiles cleanly', codesOf('import lumenc_core\nfn main(c: Console) -> Unit {\n  c.print_int(42)\n}\n'), []);
+deepEq('import lumenc_emit compiles cleanly', codesOf('import lumenc_emit\nfn main(c: Console) -> Unit {\n  c.print_int(42)\n}\n'), []);
+deepEq('module lumenc_core compiles cleanly', codesOf('module lumenc_core\nfn main(c: Console) -> Unit {\n  c.print_int(42)\n}\n'), []);
+deepEq('module lumenc_emit compiles cleanly', codesOf('module lumenc_emit\nfn main(c: Console) -> Unit {\n  c.print_int(42)\n}\n'), []);
 eq('pipeline exports isCapabilityType for Read', isCapPipe('Read'), true);
 eq('read_file stub executes without throwing', typeof read_file('nonexistent.txt'), 'string');
 eq('read_line stub executes without throwing', typeof read_line('nonexistent.txt'), 'string');
