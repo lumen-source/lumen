@@ -106,7 +106,7 @@ another agent is using concurrently.
 - `tools/gate_all.mjs` - the full gate suite, one command.
 - `tools/land_pr.mjs <pr-number>` - fetch, merge locally, gate, push - the careful merge protocol.
 - `tools/absorb/` - oracle-gated absorption of foreign (Python, C, C++) functions.
-- `bench/vs-c/` - matched-kernel timings against real C.
+- `bench/vs-lang/` - matched-kernel timings against real C, Rust, and Python.
 - `native/lumend_native.mjs` - the persistent native-compiler daemon (warm process over a socket).
 - `native/build_cache.mjs` - content-addressed cache (keyed on the emitted C + opt flag + clang
   identity) for `pipeline.mjs`'s `buildAndRunFnResident`, so a repeat compile of the same program

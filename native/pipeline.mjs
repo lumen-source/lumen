@@ -173,14 +173,16 @@ export async function buildAndRunFn(src, opt = '-O2') {
 
 // Resident-backed twin of buildAndRunFn, for repeat-call callers that live in one long-running
 // process (seed/lumen_mcp.mjs's lumen_run_native tool is the intended caller - compileToIRAuto's
-// own header comment already named it as such). Only the COMPILE step differs from buildAndRunFn
-// (compileToIRNative's per-call native-binary process spawn -> compileToIRAuto's warm
-// resident-server round trip, no spawn once warm); the emit/build/execute steps after it are the
-// same shape as buildAndRunFn on purpose. Deliberately NOT a change to buildAndRunFn itself: that
-// function has ~45 existing callers across this repo, and a resident-vs-fresh-process behavioral
-// difference (and now, a build-cache lookup) is exactly the kind of thing that should not
-// silently ride along with an unrelated caller's request. If in doubt, this function is the one
-// that changes; buildAndRunFn stays untouched.
+// own header comment already named it as such, but nothing actually called it until this
+// function existed). Only the COMPILE step differs from buildAndRunFn (compileToIRNative's
+// per-call native-binary process spawn -> compileToIRAuto's warm resident-server round trip, no
+// spawn once warm); the emit/build/execute steps after it are the same shape as buildAndRunFn on
+// purpose, so behavior (including the clang-failure and nonzero-exit handling) matches exactly.
+// Deliberately NOT a change to buildAndRunFn itself: that function has ~45 existing callers
+// across this repo, and a resident-vs-fresh-process behavioral difference (and now, a build-cache
+// lookup) is exactly the kind of thing that should not silently ride along with an unrelated
+// caller's request. If in doubt, this function is the one that changes; buildAndRunFn stays
+// untouched.
 //
 // Build cache: keyed on the EMITTED C (csrc, post-optimize, post-emit) plus the opt flag - see
 // build_cache.mjs's header for the full correctness argument (two independent defenses against
