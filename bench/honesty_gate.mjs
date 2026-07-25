@@ -30,8 +30,8 @@ const ULP_BOUND = 4;
 // HONESTY_PERF_TARGET. The floor is the HONEST current level, not an aspiration - a target Lumen can't
 // meet would just paint honest code red. It rises only when a REAL, gate-passing (G1c+G7) change earns it.
 //   0.60 now (honest scalar) -> 1.00 (a real GENERAL SIMD-lowering pass) -> 1.50 (unroll+const-lift) -> 2.00
-const PERF_TARGET = Number(process.env.HONESTY_PERF_TARGET || '0.45');
-const PERF_LADDER = [0.50, 0.60, 1.00, 1.50, 2.00];
+const PERF_TARGET = Number(process.env.HONESTY_PERF_TARGET || '0.60');
+const PERF_LADDER = [0.60, 1.00, 1.50, 2.00];
 const PERF_N = Number(process.env.HONESTY_PERF_N || '2000000');
 
 const results = [];
@@ -250,7 +250,7 @@ fn main(c: Console) -> Unit {
     const allocCount = [...csrc.matchAll(/lm_anew|lm_halloc/g)].length;
     const stdout = r.stdout.trim();
     const val = Number(stdout);
-    const pass = val >= 480000 && val <= 520000;
+    const pass = val >= 480000 && val <= 520000 && allocCount === 0;
     record('G9-RNG', pass, `D4-RNG PRNG & Probability Sampling (PCG64, Philox, Gaussian): 0 heap allocation on 1B samples (val=${val}, allocs=${allocCount})`);
   } catch (e) {
     record('G9-RNG', false, `D4-RNG failed: ${e.message.slice(0, 100)}`);
