@@ -10,6 +10,48 @@ bit-identical to it).
 
 ---
 
+## 2026-07-23 : Content-addressed native build cache (buildAndRunFnResident)
+
+Added `build_cache.mjs`: a content-addressed cache for the compile-to-BINARY step (`clang` on the
+emitted C) of `pipeline.mjs`'s `buildAndRunFnResident` - the function `seed/lumen_mcp.mjs`'s
+`lumen_run_native` MCP tool calls. A prior measurement had shown that warming the Lumen-to-IR
+compile step alone (`compileToIRAuto`'s resident-server round trip) gave near-zero end-to-end
+speedup for this tool: `clang`'s own compile-and-link dominates wall time for small kernels, not
+the IR-compile step. This change skips `clang` entirely on a repeat of the same emitted C (the
+common case in iterative agent-driven development - the same kernel gets tweaked and re-run many
+times, or the exact same program runs repeatedly).
+
+Key design points (full rationale in `build_cache.mjs`'s header):
+- Keyed on `sha256(emitted C) + opt flag + a clang-identity hash` - never the Lumen source itself,
+  so two different sources that happen to emit the same C legitimately share a cache entry.
+- Two independent correctness defenses: the key folds in everything that can change the binary
+  (opt level, clang version), AND every cache hit re-reads the stored source and compares it
+  byte-for-byte against the request before trusting the binary - a cache that ever serves the
+  wrong binary is worse than no cache, so this is treated as non-negotiable, not an optimization.
+- Scoped to `buildAndRunFnResident` only, never `buildAndRunFn` (its ~45 existing callers must see
+  zero behavioral change from this work - same precedent as the resident/fresh-process split
+  itself).
+- Repo-local `native/.native-build-cache/`, ignored via `native/.gitignore` (same convention as
+  `seed/.lumen-cache/`'s directory-local `.gitignore`). `LUMEN_NO_CACHE=1` bypasses it entirely
+  (same env var `seed/cache.mjs` already uses, one bypass switch for both caches in this repo).
+- No automatic eviction (documented, not silently missing): the cache grows with the number of
+  DISTINCT programs ever run through the resident path, not with call count. Manual inspection/
+  cleanup: `node native/build_cache_clean.mjs` (report) / `--clear` (wipe).
+
+Measured (this machine, `native/build_cache_test.mjs`'s local-only timing section, 10-kernel
+corpus from `mu/examples/`): a cache HIT on a repeat of the same source averaged **~8x faster**
+than that same program's own first (miss) call, and showed no false speedup across 10 distinct
+programs run back-to-back (every one a genuine miss, same cost order as the uncached path). Real
+numbers vary run to run (see the test's own console output for a live measurement); the test
+asserts correctness, not a specific ratio.
+
+`buildAndRunFnResident` itself did not previously exist on `main` (a prior branch had proposed it,
+unmerged); this change adds it (resident-compile twin of `buildAndRunFn`, same shape, only the
+compile step and now the build cache differ) and wires `lumen_run_native` to prefer it with a
+graceful fallback to `buildAndRunFn` on any error, exactly as that prior design specified.
+
+---
+
 ## 2026-07-06 : Serve capacity x8 + HEAD + query-cut routing - a full page (HTML + all assets) native
 
 Root-caused a slow, buggy page on the live edge and fixed it at the language level. The evidence: a
