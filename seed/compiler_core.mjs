@@ -21,6 +21,7 @@
 // the resident bridge fails to start or wedges; see compile() below for the exact switch.
 // Zero-legacy note: this host shim is bootstrap scaffolding, re-derived in Lumen at the
 // self-hosting fixpoint, same as before.
+import fs from 'node:fs';
 import { compileToIRNativeRaw } from '../native/native_compile.mjs';
 import { compileToIRResidentSync, stopResidentSyncBridge } from '../native/resident_sync.mjs';
 import { createInterpreter, CODE_BASE as INTERP_CODE_BASE } from '../native/ir_interpreter.mjs';
@@ -52,7 +53,32 @@ export const OPS = {0:'HALT',1:'PUSH',2:'GETARG',3:'ADD',4:'SUB',5:'LT',6:'JZ',7
   29:'FPUSH',   // float literal (two 32-bit halves, like DPUSH) - was missing a name entirely
   53:'LOAD32',54:'STORE32',55:'LOAD8',56:'STORE8',   // raw-memory keystone (self-host + native emitter/optimizer)
   58:'BAND',59:'BOR',60:'BXOR',61:'SHL',62:'SHR',63:'BNOT',   // bitwise builtins (stack ops, no inline operands)
-  64:'DPUSH',65:'DFROMI',66:'DADD',67:'DSUB',68:'DMUL',69:'DDIV',70:'D2TEXT'};   // Dec: exact decimal, i64 scale 1e-6 (D1)
+  64:'DPUSH',65:'DFROMI',66:'DADD',67:'DSUB',68:'DMUL',69:'DDIV',70:'D2TEXT',   // Dec: exact decimal, i64 scale 1e-6 (D1)
+  71:'READFILE',72:'READLINE'};
+
+// Track D: Read capability parameter recognition & host file data-in primitives
+export const CAPABILITY_TYPES = ['Console', 'Read'];
+export function isCapabilityType(typeName) {
+  return typeName === 'Console' || typeName === 'Read';
+}
+
+export function read_file(pathStr) {
+  try {
+    return fs.readFileSync(pathStr, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+export function read_line(pathStr) {
+  try {
+    const content = fs.readFileSync(pathStr, 'utf8');
+    const idx = content.indexOf('\n');
+    return idx >= 0 ? content.slice(0, idx) : content;
+  } catch {
+    return '';
+  }
+}
 
 // Canonical fixed-width operand-word count for any opcode EXCEPT TYPEMAP(57), which is
 // variable-length ([57, ntot, rettype, type0..type(ntot-1)]: 3+ntot words) and is handled

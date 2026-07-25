@@ -82,4 +82,4 @@ bootstrap interpreter stays the reference oracle forever.
   (including length-bucketing this chain) at or below baseline under V8 and reverted them all;
   the seed is at a local optimum (~615k compiles/sec/core). The real speed lever is the native
   fixpoint, not seed micro-tuning.
-- Int arrays / generic element type; a real `Bool`; exponent-form float literals. (Still open.)
+- Int arrays and real Bool have landed; generic element types and exponent-form float literals remain.

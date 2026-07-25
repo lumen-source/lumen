@@ -77,6 +77,32 @@ function loadScoreboard() {
 }
 
 // ---------------------------------------------------------------------------
+// Metric Instrumentation: explicit token counting & tokens-to-green calculation
+// ---------------------------------------------------------------------------
+
+// Explicit token counting for tokens-to-green metric calculations.
+// Replaces character proxy Math.ceil(len/4) with explicit lexeme/token counting.
+export function countTokens(text) {
+  if (typeof text !== 'string' || !text) return 0;
+  const matches = text.match(/[a-zA-Z_]\w*|\d+(?:\.\d+)?|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\/\/[^\n]*|\/\*[\s\S]*?\*\/|==|!=|<=|>=|=>|->|::|\.\.|&&|\|\||[^\w\s]/g);
+  return matches ? matches.length : 0;
+}
+
+export function calculateTokensToGreen(promptText, attempts = []) {
+  const promptTokens = countTokens(promptText);
+  let totalTokens = promptTokens;
+  for (const attempt of attempts) {
+    const src = typeof attempt === 'string' ? attempt : (attempt ? (attempt.source || attempt.text || '') : '');
+    totalTokens += countTokens(src);
+  }
+  return {
+    promptTokens,
+    totalTokens,
+    rounds: Array.isArray(attempts) ? attempts.length : 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // --check: schema (incl. ids + enums), evidence-exists, flip-coupling, staleness (advisory).
 // ---------------------------------------------------------------------------
 

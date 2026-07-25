@@ -129,7 +129,7 @@ function check(cond, msg) {
 }
 `;
   const r = await buildAndRunFn(src, '-O3');
-  check(r.exit === 0, `print-then-heap-exhaustion: exits 0, the silent-halt idiom (got ${r.exit})`);
+  check(r.exit === 70, `print-then-heap-exhaustion: exits 70, the software trap exit (got ${r.exit})`);
   check(r.stdout === 'before-heap-exhaustion\n', `print-then-heap-exhaustion: the printed prefix survives, halt fires before the second print (got ${JSON.stringify(r.stdout)})`);
 }
 

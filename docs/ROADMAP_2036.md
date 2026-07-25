@@ -58,10 +58,9 @@ Ordered by how load-bearing each gap is. Nothing here is hidden; each maps to wo
 5. **Flywheel step 4 has not started.** No corpus pipeline, no reinforcement environment, no
    running authorship benchmark or rounds-to-green rig (the Pillar A rig in the coverage plan
    is designed, not built). This is the keystone bet and it is at zero.
-6. **The language floor has holes.** No Bool, no Int arrays or generic elements, no
-   first-class functions or closures (handlers and most of the stdlib need them), no modules
-   or namespaces, no string/Unicode model, no maps, no float formatter (`print_float`), no
-   exponent literals, record fields are read-only.
+6. **The language floor has holes.** (Bool and Int arrays have landed; remaining gaps: generic elements,
+   first-class functions or closures, modules or namespaces, full string/Unicode model, maps, float formatter,
+   record field mutation).
 7. **Batteries are missing.** No canonical formatter, no LSP, no test runner, no package
    manager, no editions mechanism, stdlib near-empty relative to the coverage plan's D1-D20.
 8. **The paid layers are unbuilt.** Verify (the oracle as a service), Cloud (prompt to

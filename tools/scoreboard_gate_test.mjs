@@ -15,6 +15,8 @@ import {
   checkSchema,
   checkEvidenceExists,
   checkFlipCouplingPure,
+  countTokens,
+  calculateTokensToGreen,
 } from './scoreboard_gate.mjs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -194,6 +196,17 @@ console.log('\n=== checkFlipCouplingPure ===');
     ),
     'a note-only edit (verdict fields unchanged) triggers no flip-coupling requirement',
   );
+}
+
+console.log('\n=== countTokens & calculateTokensToGreen ===');
+check(countTokens('fn main() { return 0; }') === 9, 'countTokens explicitly counts lexeme tokens in source');
+check(countTokens('') === 0, 'countTokens returns 0 for empty string');
+check(countTokens('   \n\t  ') === 0, 'countTokens returns 0 for whitespace string');
+{
+  const t2g = calculateTokensToGreen('prompt text', ['fn main() {}', 'fn main() { return 0; }']);
+  check(t2g.promptTokens === 2, 'calculateTokensToGreen counts prompt tokens correctly');
+  check(t2g.totalTokens === 2 + 6 + 9, 'calculateTokensToGreen calculates total tokens across rounds');
+  check(t2g.rounds === 2, 'calculateTokensToGreen counts rounds correctly');
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);

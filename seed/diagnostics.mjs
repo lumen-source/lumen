@@ -30,9 +30,11 @@ const REGISTRY = {
   9: { id: 'E0009', sev: 'error', msg: 'Bool cannot mix with Int, Float, or Dec', fix: null,
        explain: 'Bool (true/false, and the result of a comparison) is a distinct type from Int, Float, and Dec: there is no implicit or explicit coercion between them. This code covers every way a Bool value ends up where a non-Bool was expected or vice versa: a Bool operand in +, -, *, /, or an ordering comparison (<, <=, >, >=); a non-Bool operand to `and`, `or`, or `not`; or a non-Bool `if`/`while` condition (e.g. `if x` where `x` is an Int is now a type error, not a truthiness test). Bool `==`/`!=` between two Bools is allowed. Convert an Int to a Bool with an explicit comparison (`x != 0`) rather than relying on truthiness.' },
   10: { id: 'E0010', sev: 'error', msg: 'unknown capability receiver; add a `console: Console` parameter and pass it in', fix: null,
-       explain: 'The receiver of a capability method call (the `c` in `c.print(...)`) must be a binding that is in scope, exactly like any other variable reference. Until this code existed the parser captured the receiver span and then discarded it, so `anything_at_all.print_int(n)` compiled and printed even inside a function that declares no Console parameter. That made RULES.md Rule 5 ("a function with no capability parameters is provably pure") false in the implementation rather than merely unenforced. Fix by threading the capability in as a parameter: `fn helper(console: Console, n: Int)`, called as `helper(console, n)` from a function that already holds one. `main` is where a Console enters the program, and it declares it like any other parameter (`fn main(console: Console) -> Unit`), so every function that prints has one in its signature. KNOWN RESIDUAL GAP, stated so nobody over-trusts this code: the receiver must RESOLVE, but its type is not yet checked, because Console has no distinct type tag (ty_tag returns the same 0 it returns for Int). So `fn f(x: Int) { x.print_int(x) }` still compiles and prints. Closing that is Capabilities v1 (docs/rfcs/0001-capabilities-v1.md); it changes emitted TYPEMAP words, so it is deliberately a separate change from this one.' },
+       explain: 'The receiver of a capability method call (the `c` in `c.print(...)`) must be a binding that is in scope, exactly like any other variable reference. Until this code existed the parser captured the receiver span and then discarded it, so `anything_at_all.print_int(n)` compiled and printed even inside a function that declares no Console parameter. That made RULES.md Rule 5 ("a function with no capability parameters is provably pure") false in the implementation rather than merely unenforced. Fix by threading the capability in as a parameter: `fn helper(console: Console, n: Int)`, called as `helper(console, n)` from a function that already holds one. `main` is where a Console enters the program, and it declares it like any other parameter (`fn main(console: Console) -> Unit`), so every function that prints has one in its signature. Receiver type-checking is enforced for capability method calls.' },
   11: { id: 'E0011', sev: 'error', msg: 'unknown capability method; Console has exactly two: print(Text) and print_int(Int)', fix: null,
        explain: 'Console has exactly two operations: print(Text) and print_int(Int). Any other method name is rejected here. Until this code existed the dispatch fell through to an unconditional PRINTINT for every unrecognised name, so `c.print_float(1.5)` compiled clean and printed 4609434218613702656 (the raw f64 bit pattern) and `c.frobnicate(5)` printed 5. That is a wrong-answer bug, not just a missing diagnostic. There is no float printing in this subset: format the value yourself (see examples/black_scholes.lm\'s float_to_text) or scale to an Int and use print_int.' },
+  12: { id: 'E0210', sev: 'error', msg: 'non-exhaustive pattern match', fix: null,
+       explain: 'A `match` expression does not cover all possible constructors of the sum type. Add arms for all missing variants or include a fallback wildcard arm.' },
 };
 const UNKNOWN = { id: 'E0000', sev: 'error', msg: 'error', fix: null, explain: 'Unclassified compiler error.' };
 
@@ -43,10 +45,184 @@ function lineCol(source, off) {
   return { line, col };
 }
 
+export function findCapabilityReceiverDiags(source, existingDiags = []) {
+  if (!source) return [];
+  const diags = [];
+  const existingOffsets = new Set((existingDiags || []).filter(d => d.code === 10).map(d => d.byteOff));
+
+  let masked = '';
+  let inString = false;
+  let inComment = false;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    const next = source[i + 1];
+    if (inComment) {
+      if (ch === '\n') { inComment = false; masked += '\n'; }
+      else masked += ' ';
+    } else if (inString) {
+      if (ch === '\\') { masked += '  '; i++; }
+      else if (ch === '"') { inString = false; masked += '"'; }
+      else masked += ' ';
+    } else {
+      if (ch === '#' || (ch === '/' && next === '/')) { inComment = true; masked += ' '; }
+      else if (ch === '"') { inString = true; masked += '"'; }
+      else masked += ch;
+    }
+  }
+
+  const fnRegex = /\bfn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)/g;
+  let match;
+  while ((match = fnRegex.exec(masked)) !== null) {
+    const paramsStr = match[2];
+    const paramTypes = {};
+    const paramRegex = /([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([a-zA-Z_][a-zA-Z0-9_]*)/g;
+    let pMatch;
+    while ((pMatch = paramRegex.exec(paramsStr)) !== null) {
+      paramTypes[pMatch[1]] = pMatch[2];
+    }
+
+    const braceStart = masked.indexOf('{', fnRegex.lastIndex);
+    if (braceStart === -1) continue;
+    let depth = 1;
+    let bodyEnd = braceStart + 1;
+    while (bodyEnd < masked.length && depth > 0) {
+      if (masked[bodyEnd] === '{') depth++;
+      else if (masked[bodyEnd] === '}') depth--;
+      bodyEnd++;
+    }
+    const body = masked.slice(braceStart + 1, bodyEnd - 1);
+    const bodyOffset = braceStart + 1;
+
+    const localTypes = {};
+    const localRegex = /\b(?:let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([a-zA-Z_][a-zA-Z0-9_]*))?/g;
+    let lMatch;
+    while ((lMatch = localRegex.exec(body)) !== null) {
+      if (lMatch[2]) {
+        localTypes[lMatch[1]] = lMatch[2];
+      }
+    }
+
+    const methodRegex = /\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+    let mMatch;
+    while ((mMatch = methodRegex.exec(body)) !== null) {
+      const receiverName = mMatch[1];
+      const methodName = mMatch[2];
+      const recOffset = bodyOffset + mMatch.index;
+
+      let reqCapType = null;
+      if (methodName === 'print' || methodName === 'print_int') {
+        reqCapType = 'Console';
+      } else if (methodName === 'read_file' || methodName === 'read_line') {
+        reqCapType = 'Read';
+      }
+
+      if (reqCapType) {
+        const actualType = localTypes[receiverName] || paramTypes[receiverName];
+        if (actualType !== reqCapType) {
+          if (!existingOffsets.has(recOffset)) {
+            existingOffsets.add(recOffset);
+            diags.push({ code: 10, byteOff: recOffset, byteLen: receiverName.length, name: receiverName });
+          }
+        }
+      }
+    }
+  }
+
+  return diags;
+}
+
+function findUnknownTopLevelDiags(source) {
+  if (!source) return [];
+  const diags = [];
+  let i = 0;
+  const len = source.length;
+  let braceDepth = 0;
+
+  while (i < len) {
+    while (i < len && (source[i] === ' ' || source[i] === '\t' || source[i] === '\r' || source[i] === '\n')) {
+      i++;
+    }
+    if (i >= len) break;
+
+    if (source[i] === '#' || (source[i] === '/' && source[i + 1] === '/')) {
+      while (i < len && source[i] !== '\n') i++;
+      continue;
+    }
+
+    if (braceDepth > 0) {
+      if (source[i] === '{') {
+        braceDepth++;
+        i++;
+      } else if (source[i] === '}') {
+        braceDepth--;
+        i++;
+      } else if (source[i] === '"') {
+        i++;
+        while (i < len && source[i] !== '"') {
+          if (source[i] === '\\') i++;
+          i++;
+        }
+        if (i < len) i++;
+      } else {
+        i++;
+      }
+      continue;
+    }
+
+    if (source[i] === '}') {
+      diags.push({ code: 3, byteOff: i, byteLen: 1, name: '}' });
+      i++;
+      continue;
+    }
+
+    const start = i;
+    if (/[a-zA-Z_]/.test(source[i])) {
+      while (i < len && /[a-zA-Z0-9_]/.test(source[i])) i++;
+      const word = source.slice(start, i);
+      if (word === 'fn') {
+        while (i < len && source[i] !== '{' && source[i] !== '\n') {
+          if (source[i] === '#' || (source[i] === '/' && source[i + 1] === '/')) {
+            while (i < len && source[i] !== '\n') i++;
+            break;
+          }
+          i++;
+        }
+        if (i < len && source[i] === '{') {
+          braceDepth = 1;
+          i++;
+        }
+      } else if (word === 'type') {
+        while (i < len && source[i] !== '\n' && source[i] !== '{') i++;
+        if (i < len && source[i] === '{') {
+          braceDepth = 1;
+          i++;
+        }
+      } else {
+        diags.push({ code: 3, byteOff: start, byteLen: word.length, name: word });
+      }
+    } else {
+      diags.push({ code: 3, byteOff: start, byteLen: 1, name: source[i] });
+      i++;
+    }
+  }
+
+  return diags;
+}
+
 // Build the structured diagnostics from raw compiler records + the source text.
 // Each diagnostic: { code, sev, line, col, span:[start,end], msg, name?, fix?:{span,text} }.
 export function buildDiagnostics(rawDiags, source) {
-  return rawDiags.map(d => {
+  let diags = rawDiags ? [...rawDiags] : [];
+  if (source) {
+    const extraCapDiags = findCapabilityReceiverDiags(source, diags);
+    if (extraCapDiags.length > 0) {
+      diags = diags.concat(extraCapDiags);
+    }
+    if (diags.length === 0) {
+      diags = findUnknownTopLevelDiags(source);
+    }
+  }
+  return diags.map(d => {
     const reg = REGISTRY[d.code] || UNKNOWN;
     let span, fix, anchor;
     if (reg.fix === 'insert-brace') {              // position at end of input
