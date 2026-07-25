@@ -231,27 +231,31 @@ acceptance run and every fixture re-check compile the candidate through the inte
 native toolchain, both required to reproduce the oracle. See `tools/absorb/README.md` for the full
 contract, including the v1 scope limits.
 
-## Benchmarking against other languages (`bench/vs-c/`)
+## Benchmarking against other languages (`bench/vs-lang/`)
 
-A matched-kernel scoreboard racing Lumen's native output against real C compiled with `-O3` (the
-cloned `gcc`/`llvm` sources when a prebuilt binary is available there, else the system compiler,
-disclosed either way): four kernel pairs (recursive call, matrix multiply, insertion sort, an
-open-addressing hash probe), gated `G0` on byte-identical stdout before any timing is trusted.
-Real measured results and the exact compiler versions used are in `bench/vs-c/SCOREBOARD.md`, not
-asserted here since they will drift as the toolchain improves. (Extending this to Rust and Python
-twins is a natural next step, not yet built - see `bench/authorship/` below for the benchmark that
-actually matters more to the project's claim.)
+A matched-kernel scoreboard racing Lumen's native output against C (`clang -O3`), Rust (`rustc
+-O`), and Python (CPython, interpreted): four kernel quads (recursive call, matrix multiply,
+insertion sort, an open-addressing hash probe), gated `G0` on byte-identical stdout across all four
+languages before any timing is trusted. Honest framing, not just numbers: Lumen's native path
+compiles to C and is optimized by clang, so it can match hand-written C and Rust (both ultimately
+LLVM-backend-optimized) but has no architectural reason to consistently beat either - the measured
+results bear this out (roughly 0.83x-1.16x across kernels, no consistent direction). Against Python
+the gap is real and large (0.04x-0.12x, i.e. 8-25x faster), which is the structural, defensible win
+this scoreboard actually demonstrates. Real measured numbers and the exact compiler/interpreter
+versions used are in `bench/vs-lang/SCOREBOARD.md`, not asserted here since they will drift as the
+toolchain improves.
 
 ## The actual moat: `tokens-to-green`, not raw execution speed (`bench/authorship/`)
 
-Raw execution speed is parity with C/Rust, not a blowout (see above) - that is not the claim this
-project stakes its identity on. The claim (`VISION_2036.md` row 9, `RULES.md`'s single sentence:
-"Lumen wins by being the shortest, tightest, most trustworthy path from a human's intent to a
-proven running binary, for a model writing it") is about the cost of getting an AI-authored program
-from a prompt to verified-correct: `tokens-to-green` and `rounds-to-green`, not execution
-milliseconds. `bench/authorship/` is the corpus that measures this directly - a growing set of
-tasks, each authored from scratch (no reference code shown) in Lumen and in rival languages,
-with real, honestly-reported results including runs where Lumen did not win (see
+Raw execution speed is parity with C and Rust, not a blowout - the numbers above say so plainly,
+and that is deliberately not the claim this project stakes its identity on. The claim
+(`VISION_2036.md` row 9, `RULES.md`'s single sentence: "Lumen wins by being the shortest,
+tightest, most trustworthy path from a human's intent to a proven running binary, for a model
+writing it") is about the cost of getting an AI-authored program from a prompt to
+verified-correct: `tokens-to-green` and `rounds-to-green`, not execution milliseconds.
+`bench/authorship/` is the corpus that measures this directly - a growing set of tasks, each
+authored from scratch (no reference code shown) in Lumen and in rival languages, with real,
+honestly-reported results including runs where Lumen did not win (see
 `bench/authorship/tasks/black_scholes_call/RESULTS.md` for the first pilot: Python won on raw
 tokens-to-green on that task, while Lumen compiled clean on every attempt with zero diagnostics
 fired - the extra rounds were a self-inflicted output bug, a real and reported finding, not
