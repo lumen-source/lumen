@@ -20,7 +20,7 @@ import { withCache, withCacheAsync } from './cache.mjs';
 import { checkAuto } from './native_check.mjs';
 
 function usage() {
-  console.error('usage: lumen <run|check|fix|ir|effects|explain|serve|mcp> [file.lm|CODE|socket] [--json] [--write] [--fuel=N]');
+  console.error('usage: lumen <run|check|build|fix|ir|effects|explain|serve|mcp> [file.lm|CODE|socket] [-o output] [--json] [--write] [--fuel=N]');
   process.exit(2);
 }
 
@@ -51,7 +51,8 @@ if (cmd === 'serve' || cmd === 'mcp') {
   const child = spawn(process.execPath, [mod.pathname, ...positionals], { stdio: 'inherit' });
   child.on('exit', c => process.exit(c ?? 0));
 } else {
-  if (!['run', 'check', 'fix', 'ir', 'effects'].includes(cmd) || !arg) usage();
+  const effectiveCmd = cmd === 'caps' ? 'effects' : cmd;
+  if (!['run', 'check', 'build', 'fix', 'ir', 'effects'].includes(effectiveCmd) || !arg) usage();
 
   let source;
   try { source = fs.readFileSync(arg, 'utf8'); }
@@ -61,7 +62,7 @@ if (cmd === 'serve' || cmd === 'mcp') {
   const { buildDiagnostics, applyFixes, fixableCount, renderHuman } = await import('./diagnostics.mjs');
   const lumen = await createCompiler();
 
-  if (cmd === 'check') {
+  if (effectiveCmd === 'check') {
     // R3: check is native-first with an automatic wat fallback (checkAuto), same as
     // seed/lumend.mjs/seed/lumen_mcp.mjs. fix/ir/run stay on the wasm path below (ir's
     // disassembly reads the compiled program straight out of the wasm instance's own memory;
@@ -78,7 +79,32 @@ if (cmd === 'serve' || cmd === 'mcp') {
     process.exit(1);
   }
 
-  if (cmd === 'fix') {
+  if (effectiveCmd === 'build') {
+    const { execSync } = await import('node:child_process');
+    const { compileToIR, emitC } = await import('../native/pipeline.mjs');
+    const oIdx = argv.indexOf('-o');
+    const outFile = oIdx !== -1 && argv[oIdx + 1] ? argv[oIdx + 1] : arg.replace(/\.lm$/, '');
+    const c = lumen.compile(source);
+    const diags = buildDiagnostics(c.rawDiags, source);
+    if (diags.length > 0) {
+      for (const d of diags) console.error(renderHuman(arg, d));
+      console.error(`lumen: ${diags.length} error(s); cannot build.`);
+      process.exit(1);
+    }
+    const irResult = await compileToIR(source);
+    const csrc = await emitC(irResult.words, irResult.main, irResult.strings);
+    const tmpC = `/tmp/lumen_build_${Date.now()}.c`;
+    fs.writeFileSync(tmpC, csrc);
+    try {
+      execSync(`clang -O2 "${tmpC}" -o "${outFile}"`, { stdio: 'inherit' });
+      console.log(`lumen: built native executable ${outFile}`);
+    } finally {
+      try { fs.unlinkSync(tmpC); } catch (_) {}
+    }
+    process.exit(0);
+  }
+
+  if (effectiveCmd === 'fix') {
     let cur = source, totalApplied = 0, rounds = 0;
     while (rounds++ < 20) {
       const c = lumen.compile(cur);
@@ -100,14 +126,14 @@ if (cmd === 'serve' || cmd === 'mcp') {
     process.exit(remaining.length === 0 ? 0 : 1);
   }
 
-  if (cmd === 'ir') {
+  if (effectiveCmd === 'ir') {
     const r = withCache('ir', source, () => lumen.ir(source));
     if (!r.ok) { for (const d of buildDiagnostics(r.rawDiags, source)) console.error(renderHuman(arg, d)); process.exit(1); }
     console.log(r.text);
     process.exit(0);
   }
 
-  if (cmd === 'effects') {
+  if (effectiveCmd === 'effects') {
     // C0: per-function derived capability rows (seed/effects.mjs). Cached like `ir` (same
     // compiler-facing cost profile: one compile, then a pure in-memory walk).
     const { effectsFromSource } = await import('./effects.mjs');

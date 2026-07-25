@@ -788,6 +788,8 @@ static const unsigned char lm_trap_msg[19] = {108,117,109,101,110,58,32,109,101,
 static void lm_trap(int sig){ fflush(stdout); write(2, lm_trap_msg, 19); _exit(70); }
 __attribute__((constructor)) static void lm_install_traps(void){ signal(SIGBUS, lm_trap); signal(SIGSEGV, lm_trap); }
 ")
+  c.print("static const unsigned char lm_heap_msg[30] = {108,117,109,101,110,58,32,104,101,97,112,32,99,97,112,97,99,105,116,121,32,101,120,99,101,101,100,101,100,10};\n")
+  c.print("static void lm_out_of_heap(void){ fflush(stdout); write(2, lm_heap_msg, 30); _exit(70); }\n")
   if fuel_mode() == 1 {
     c.print("static int64_t LM_FUEL_BUDGET = ") num(c, fuel_budget()) c.print(";\n")
     c.print("static int64_t LM_FUEL = 0;\n")
@@ -842,13 +844,13 @@ static int64_t AHEAP[AHEAP_PHYS];
 static unsigned char LMEM[LMEM_CAP];
 static int64_t AHP=0;
 static int64_t LM_HP=0;
-static int64_t lm_anew(int64_t n){if(n<0)n=0; if(LM_HP+4+8*n>LM_CAP_BYTES||AHP+1+n>AHEAP_CAP){fflush(stdout); exit(0);} LM_HP+=4+8*n; int64_t h=AHP; AHEAP[h]=n; for(int64_t i=0;i<n;i++)AHEAP[h+1+i]=0; AHP=AHP+1+n; return h;}
+static int64_t lm_anew(int64_t n){if(n<0)n=0; if(LM_HP+4+8*n>LM_CAP_BYTES||AHP+1+n>AHEAP_CAP){lm_out_of_heap();} LM_HP+=4+8*n; int64_t h=AHP; AHEAP[h]=n; for(int64_t i=0;i<n;i++)AHEAP[h+1+i]=0; AHP=AHP+1+n; return h;}
 static int64_t lm_aget(int64_t a,int64_t i){int64_t len=AHEAP[a]; if(i<0||i>=len)return 0; return AHEAP[a+1+i];}
 static void lm_aset(int64_t a,int64_t i,int64_t x){int64_t len=AHEAP[a]; if(i<0||i>=len)return; AHEAP[a+1+i]=x;}
 static int64_t lm_alen(int64_t a){return AHEAP[a];}
 static int64_t lm_alloc_bytes(int64_t num_bytes) {
   int64_t words = (num_bytes + 7) / 8;
-  if (AHP + words > AHEAP_PHYS) { fflush(stdout); exit(0); }
+  if (AHP + words > AHEAP_PHYS) { lm_out_of_heap(); }
   LM_HP += num_bytes;
   int64_t h = AHP;
   for (int64_t i = 0; i < words; i++) AHEAP[h + i] = 0;
@@ -856,7 +858,7 @@ static int64_t lm_alloc_bytes(int64_t num_bytes) {
   return (int64_t)&AHEAP[h];
 }
 static int64_t lm_alloc_sum(int64_t tag, int64_t payload) {
-  if (LM_HP + 16 > LM_CAP_BYTES || AHP + 2 > AHEAP_CAP) { fflush(stdout); exit(0); }
+  if (LM_HP + 16 > LM_CAP_BYTES || AHP + 2 > AHEAP_CAP) { lm_out_of_heap(); }
   LM_HP += 16;
   int64_t h = AHP;
   AHEAP[h] = tag;
