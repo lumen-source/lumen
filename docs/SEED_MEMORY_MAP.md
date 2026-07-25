@@ -115,9 +115,25 @@ Note that `native/lumenc_native.mjs`'s `DIAG_RECORD_CAP = 500` does not protect 
 records is 6000 bytes, which runs 4000 bytes past the start of `TOKENS`. The producer-side cap
 is the one that matters.
 
+## Narrative Comments Relocated from `seed/lumenc.lm`
+
+### `is_d_suffix` contract
+True if source byte `i` is `'d'` and not immediately followed by an identifier-continuation character, so a number directly abutting an identifier (e.g. a typo like `1death`) is not silently swallowed as a Dec literal + garbage; it lexes as before (`INT` then `IDENT`) and fails to parse, exactly matching the seed's own `$is_d_suffix` contract.
+
+### `tk` Safety Guard
+Token accessors: SAFETY (mirrors the seed .wat's `$tk`/`$ta`/`$tb`): any index at or past `get_ntok()` reads as EOF (kind 14, payload 0), so every `tk==14` guard correctly detects end-of-stream and no parser loop can walk past the token region into stale/unwritten memory from a prior compile.
+
+### Single Type-Tag Decision Call-Site
+(D4) Single call-site for the Float/Dec/Bool type-tag decision (record fields, fn params, fn return type). Keep every site routed through this one helper: duplicating the checks at more than one call site previously desynced the self-hosted compile from the seed's.
+
+### `float_bits` Exact IEEE-754 Extraction
+Parse a decimal float literal (bytes at absolute src addr `off`, length `len`) and leave the two i32 words of its f64 bits in `flo`/`fhi`. The VALUE is built exactly as the seed builds it (integer part + fractional part / 10^k), evaluated in Float arithmetic, bit-identical to the seed's parse by construction.
+The BIT EXTRACTION uses only exact operations (multiply by 0.5/2.0 is pure exponent arithmetic; `m - 1.0` for `m` in `[1,2)` is exact by Sterbenz; doubling a <53-bit fraction and subtracting 1.0 is exact). Factored out so `dec_to_float` can reuse it for a FIXED value (`1_000_000.0`, the `FPUSH` constant in `I2F`/`FPUSH`/`FDIV`).
+
 ## If you need more SRC room
 
 Condense comments before adding logic, and prefer moving narrative into this file over deleting
 it. The region table at the top of `lumenc.lm` should stay inline, because that is what a reader
 needs while editing the compiler; the history of how each number was chosen belongs here.
+
 
