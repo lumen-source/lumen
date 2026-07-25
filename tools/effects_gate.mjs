@@ -2,23 +2,32 @@
 // effects_gate.mjs (C0) - the capability-purity gate, built on seed/effects.mjs's derived
 // per-function capability rows. Three checks, in order:
 //
-//   1. Soundness cross-check (BLOCKING, every scanned file, `main` exempted): a function whose
+//   1. Soundness cross-check (BLOCKING, every scanned file, NO exemptions): a function whose
 //      own signature carries no Console-typed parameter must have derived effects: [] - this is
 //      the intended invariant per docs/spec/LUMEN_MU.md ("Exactly one capability [Console]... It
 //      is the only effect and the only seam", only ever reachable by being threaded as a
-//      parameter). VERIFIED EMPIRICALLY, not assumed: the current bootstrap seed does not
-//      actually resolve or type-check the receiver of a `.print`/`.print_int` call at all (see
-//      seed/lumenc.wat's method-call dispatch, ~line 1143 - it branches only on the METHOD name
-//      and never reads the receiver token), so `anything_at_all.print_int(x)` compiles today
-//      regardless of whether `anything_at_all` is declared, and mu/examples/count.lm and
-//      sum_loop.lm rely on exactly this: `fn main() { console.print_int(i) }` with no declared
-//      Console parameter at all. Both are legitimate, already-gated conformance-corpus files
-//      (seed/corpus.mjs), not bugs - `main` is where every existing example that skips the
-//      convention does so, so `main` alone is exempted here, empirically scoped rather than
-//      guessed: every other function in the entire scanned corpus (89 of 90 as of this writing)
-//      follows the explicit `console: Console` convention with zero exceptions. This check is
-//      therefore honest about testing a STYLE CONVENTION the compiler does not yet enforce, not
-//      a language guarantee - which is also exactly the gap W2 (Capabilities v1) closes.
+//      parameter).
+//
+//      HISTORY, because this comment used to say the opposite and it matters. Until E0010 landed,
+//      the compiler did not resolve the receiver of a `.print`/`.print_int` call at all: the
+//      method-call dispatch in both seed/lumenc.wat and seed/lumenc.lm captured the receiver span
+//      and then branched only on the METHOD name, never reading it. So `anything_at_all.print_int(x)`
+//      compiled and PRINTED regardless of whether `anything_at_all` was declared, which made
+//      RULES.md Rule 5 ("a function with no capability parameters is provably pure") false in the
+//      implementation rather than merely unchecked. This gate was therefore testing a STYLE
+//      CONVENTION, and it said so honestly, with `main` carved out because three corpus files
+//      relied on the slack.
+//
+//      That hole is now closed at the language level. E0010 rejects an unresolved receiver, E0011
+//      rejects an unknown capability method (which previously fell through to an unconditional
+//      PRINTINT, so `c.print_float(1.5)` printed the raw f64 bit pattern), the three files were
+//      given explicit `console: Console` parameters like the other 121 mains already had, and the
+//      `main` exemption is deleted. This check now covers every scanned function with no
+//      carve-outs. Note the residual gap it still does NOT close: the receiver must resolve to an
+//      in-scope binding, but its TYPE is not yet checked, because Console has no distinct type tag
+//      (seed/lumenc.lm's ty_tag returns 0 for it, the same as Int). Closing that is Capabilities
+//      v1 (docs/rfcs/0001-capabilities-v1.md) and it changes emitted TYPEMAP words, so it is
+//      deliberately a separate change.
 //   2. Finance kernels pure (BLOCKING, named): every function in examples/finance/*.lm without a
 //      Console parameter is individually named and asserted pure, in its own report section - the
 //      concrete, marketable claim ("the pricing math is provably untainted by I/O") that (1)
@@ -67,14 +76,17 @@ export function hasConsoleParam(signature) {
 }
 
 // Soundness cross-check over one file's derived function rows: every row with no Console
-// parameter must be pure, EXCEPT a function literally named `main` (see the header comment: the
-// current bootstrap seed does not check a print call's receiver at all, and mu/examples/count.lm
-// / sum_loop.lm's zero-arg `main() { console.print_int(...) }` relies on exactly that slack).
+// parameter must be pure. There is NO LONGER a `main` exemption. The exemption existed because
+// the compiler did not resolve a print call's receiver at all, so a zero-parameter
+// `main() { console.print_int(...) }` compiled on that slack; E0010 closed that hole and the
+// three files that relied on it (mu/examples/count.lm, mu/examples/sum_loop.lm,
+// examples/hostdata/decide_kernel.lm) now take an explicit `console: Console` like the other
+// 121 mains in the corpus already did. Removing the carve-out makes this check strictly
+// stronger: it now covers every function in the scanned set, `main` included.
 // Returns an array of human-readable failure strings (empty = clean).
 export function checkSoundness(filePath, functions) {
   const failures = [];
   for (const f of functions) {
-    if (f.name === 'main') continue;
     if (!hasConsoleParam(f.signature) && f.effects.length > 0) {
       failures.push(
         `${filePath}: ${f.name} (line ${f.line}) has no Console parameter but derived effects ` +

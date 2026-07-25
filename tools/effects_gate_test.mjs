@@ -21,7 +21,7 @@ function check(cond, msg) {
 check(hasConsoleParam('fn norm_cdf(x: Float) -> Float {') === false, 'hasConsoleParam: a Float-only signature has no Console param');
 check(hasConsoleParam('fn show(console: Console, p: Float) -> Unit {') === true, 'hasConsoleParam: console: Console is detected');
 check(hasConsoleParam('fn main(c: Console) -> Unit {') === true, 'hasConsoleParam: c: Console is detected (short param name)');
-check(hasConsoleParam('fn main() {') === false, 'hasConsoleParam: zero-arg main has no Console param (this is exactly the exempted case)');
+check(hasConsoleParam('fn main() {') === false, 'hasConsoleParam: zero-arg main has no Console param (E0010 now rejects this shape at compile time)');
 check(hasConsoleParam('') === false, 'hasConsoleParam: empty signature is false, not a throw');
 check(hasConsoleParam(undefined) === false, 'hasConsoleParam: undefined signature is false, not a throw');
 check(hasConsoleParam('fn f(a: Int, console: Console, b: Text) -> Unit {') === true, 'hasConsoleParam: detected in a non-first parameter position');
@@ -45,12 +45,16 @@ check(hasConsoleParam('fn f(a: Int, console: Console, b: Text) -> Unit {') === t
   check(failures2[0].includes('sneaky'), 'checkSoundness: the failure message names the offending function');
 }
 {
-  // The exact regression this exemption exists for: mu/examples/count.lm and sum_loop.lm's
-  // `fn main() { console.print_int(i) }` shape.
+  // This shape (`fn main() { console.print_int(i) }`, no declared Console) used to be exempted,
+  // because the compiler did not resolve a print call's receiver at all and three corpus files
+  // relied on that slack. E0010 closed the hole and those files now declare `console: Console`,
+  // so the carve-out is gone and main is held to the same rule as every other function.
   const zeroArgMain = [
     { name: 'main', line: 1, signature: 'fn main() {', effects: ['Console'] },
   ];
-  check(checkSoundness('count.lm', zeroArgMain).length === 0, 'checkSoundness: main is exempt even with no Console param and Console effects');
+  const mainFailures = checkSoundness('count.lm', zeroArgMain);
+  check(mainFailures.length === 1, 'checkSoundness: main is NO LONGER exempt (E0010 closed the hole it existed for)');
+  check(/main/.test(mainFailures[0] || ''), 'checkSoundness: the main failure names the offending function');
 }
 
 // ---------------------------------------------------------------------------
