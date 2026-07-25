@@ -1,4 +1,4 @@
-fn main() {
+fn main(console: Console) -> Unit {
   var i = 1
   while i < 6 {
     console.print_int(i)

@@ -2,22 +2,11 @@
 # Memory map mirrors the seed's proven layout (SRC 100000, SYMBOLS 170000, params/locals
 # 177000/177500, FIXUPS 178000, TOKENS 299000, literal heap 488000) so a self-compile fits;
 # only CODE (211328) differs, because the seed's CODE_BASE holds this compiler's own IR.
-# (D4: SYMBOLS/PARAMS/LOCALS/FIXUPS shifted +20000 from the pre-Dec layout to widen SRC to
-# 70000 bytes -- lumenc.lm itself, with Dec support, exceeds the old 50000-byte SRC cap when
-# it compiles itself.)
-# GAP-A (native/selfcompile_diff.mjs): the literal-heap start is baked into every compiled
-# program's emitted IR as an absolute address, so it MUST stay pinned at the seed's 488000 --
-# it can't shift the way the other regions did. That pinned ceiling capped TOKENS at 92000
-# bytes (7666 tokens), below what real self-hosted compiles need (up to 14420 tokens for
-# lumenc.lm itself); tokens beyond 7666 were silently clobbered by the literal-heap bump
-# allocator once the first string literal was emitted, surfacing as garbage-span parse
-# diagnostics (E0001/E0004), never a lex-level divergence (lexing itself stayed correct).
-# Fix: CODE's reserved room was over-provisioned >2x (39668 words vs a 16503-word high-water
-# mark); shrinking it to 19668 words (+19% headroom) and repacking VARIANTS/PTYPES/LTYPES/
-# RETTYPES/FIELDS/RECTYPES/DIAG after it reclaims enough slack to widen TOKENS to 189000 bytes
-# (15750 tokens, +9% headroom) without moving the pinned heap start or any baked address.
-# See native_resident_test.mjs / native_fixpoint_test.mjs / selfhost_diff.mjs SELF(lumenc.lm)
-# for the self-compile bit-identity this must keep holding.
+# The literal heap at 488000 is PINNED: it is baked into every compiled program's IR as an
+# absolute address, so it must never move. SRC is a hard 70000-byte cap and this file's own
+# comments spend it, so the history of how each region was sized (D4, GAP-A's silent token
+# clobber, the LOCALS and DIAG budgets) lives in docs/SEED_MEMORY_MAP.md. Read that before
+# moving any number here. Bit-identity gates: native_fixpoint_test.mjs, selfhost_diff.mjs.
 fn SRC() -> Int { return 100000 }
 fn TOKENS() -> Int { return 299000 }
 fn SYMBOLS() -> Int { return 170000 }
@@ -526,6 +515,15 @@ fn is_str_console_print(off: Int, len: Int) -> Int {
   if load8(off + 4) != 116 { return 0 }
   return 1
 }
+fn is_str_print_int(off: Int, len: Int) -> Int {
+  if len != 9 { return 0 }
+  if is_str_console_print(off, 5) != 1 { return 0 }
+  if load8(off + 5) != 95 { return 0 }
+  if load8(off + 6) != 105 { return 0 }
+  if load8(off + 7) != 110 { return 0 }
+  if load8(off + 8) != 116 { return 0 }
+  return 1
+}
 fn is_kw_console_print(i: Int) -> Int {
   if tk(i) != 1 { return 0 }
   return is_str_console_print(ta(i), tb(i))
@@ -922,6 +920,8 @@ fn var_find(off: Int, len: Int) -> Int {
 }
 
 fn err_add(code: Int, off: Int, len: Int) -> Unit {
+  # DIAG [297000,299000) ends where TOKENS begins: 166 records. Cap, do not corrupt.
+  if get_nerr() >= 166 { return () }
   let base = 297000 + get_nerr() * 12
   store32(base, code)
   store32(base + 4, off)
@@ -1568,10 +1568,18 @@ fn c_primary() -> Unit {
           c_expr()
         }
         adv()
+        # E0010: resolve the receiver (was discarded here, so any name could print).
+        if var_find(off, length) < 0 {
+          err_add(10, off, length)
+        }
         if is_str_console_print(moff, mlen) == 1 {
           emitw(16)
           set_expr_pushes(0)
         } else {
+          # E0011: this arm was an unconditional PRINTINT, so any name became print_int.
+          if is_str_print_int(moff, mlen) != 1 {
+            err_add(11, moff, mlen)
+          }
           emitw(10)
           set_expr_pushes(0)
         }
