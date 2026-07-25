@@ -25,7 +25,7 @@ loses to hand-written C or Rust is reported as a loss.
   `native/emit_fn.lm`'s C emitter) -> `clang -O3` -> standalone native binary.
 - C path: `clang -O3` directly on the hand-written `.c` twin.
 - Rust path: `rustc -O` directly on the hand-written `.rs` twin (rustup-installed
-  toolchain, NOT built from the source clone at `~/repos-languages/rust`, which has no
+  toolchain, NOT built from the source clone at `$LUMEN_LANGUAGES_ROOT/rust`, which has no
   build artifacts - see "Compiler provenance"). `-O` is rustc's standard optimized-build
   flag; it is not the literal same flag namespace as clang's `-O3` but is the correct
   "give me an optimized release build" flag for this compiler, same intent.
@@ -40,9 +40,9 @@ loses to hand-written C or Rust is reported as a loss.
 
 ## Compiler provenance
 
-This machine has GCC and LLVM/Clang cloned from source at `/Users/freedom/repos-languages/gcc`
-and `/Users/freedom/repos-languages/llvm`, and Rust cloned from source at
-`/Users/freedom/repos-languages/rust`, specifically so comparisons could race real modern
+This machine has GCC, LLVM/Clang, and Rust cloned from source under a local source-built
+toolchain root (the `gcc`, `llvm`, and `rust` subdirectories of the path named by the
+`LUMEN_LANGUAGES_ROOT` environment variable), specifically so comparisons could race real modern
 compilers built from source, not stale system/package-manager toolchains. **Checked before
 this run**: none of the three trees has a built compiler binary or install receipt (`find
 */build/ */obj*` under each returned nothing for the compilers themselves). Building any of
@@ -118,8 +118,8 @@ board - that gap is the honest, structural one this scoreboard actually demonstr
 
 ## Follow-up
 
-- Build real GCC, LLVM/Clang, and rustc from the cloned source trees at
-  `/Users/freedom/repos-languages/{gcc,llvm,rust}` (multi-hour each, background jobs) and
+- Build real GCC, LLVM/Clang, and rustc from the source trees under the local source-built
+  toolchain root (`$LUMEN_LANGUAGES_ROOT/{gcc,llvm,rust}`; multi-hour each, background jobs) and
   re-run this scoreboard against those binaries instead of the system/rustup fallbacks used
   here.
 - Root-cause the N=39 array-size boundary bug found above.

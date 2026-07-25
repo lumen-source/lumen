@@ -331,8 +331,8 @@ specifically attributable to information LLVM cannot recover from Lumen's curren
 emission (not merely "LLVM didn't vectorize this specific loop shape yet", which is a Stage
 A-D-style emission fix, not a case for a new pass), and (b) that gap is large enough on real
 pricing-kernel workloads (Black-Scholes families, yield-curve bootstrapping, path-dependent Monte
-Carlo payoffs, the actual FE-API numeric hot paths) to justify a multi-year investment against the
-project's other committed arcs in `ROADMAP_2036.md`.
+Carlo payoffs, the actual numeric hot paths of a production pricing API) to justify a multi-year
+investment against the project's other committed arcs in `ROADMAP_2036.md`.
 
 ---
 

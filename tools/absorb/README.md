@@ -75,20 +75,27 @@ printed as decimal text), compiles it with a real compiler, executes the binary,
 its stdout as ground truth. Nothing about the foreign function is transcribed by hand: the
 harness calls the actual compiled code.
 
-**Compiler discovery (documented honestly, not assumed):** for `--oracle c` this repo
-prefers a prebuilt `xgcc` under the cloned `/Users/freedom/repos-languages/gcc` sources, and
-for `--oracle cpp` a prebuilt `clang++` under the cloned `/Users/freedom/repos-languages/llvm`
-sources, falling back to whatever `gcc`/`clang` (C) or `clang++`/`g++` (C++) is on `PATH` if
-the clone has no prebuilt binary at that path yet, exactly the same fallback discipline the
-repo's bench/vs-lang track already uses. Whichever compiler is actually used, its binary path,
-a human label (`"cloned gcc (prebuilt, repos-languages/gcc)"` vs `"system gcc"` etc.), and
-its `--version` banner are recorded in the frozen fixture's `oracle.compiler` /
-`oracle.compiler_bin` / `oracle.version_at_absorption` fields, so it is always inspectable
-after the fact which compiler produced the ground truth, never silently assumed. As of this
-writing the cloned `repos-languages/gcc` and `repos-languages/llvm` trees are source-only
-(no build products yet), so every C/C++ absorption to date in this repo used the **system**
-compiler (Apple clang, both as `gcc`/`clang` and as `clang++`), visible per-fixture in the
-`oracle.compiler` field.
+**Compiler discovery (documented honestly, not assumed):** absorption prefers a compiler you
+built from source over the system toolchain, so a C/C++ absorption races a real modern
+optimizing compiler rather than whatever stale vendor build happens to ship with the OS. That
+preference is opt-in through one environment variable, never a hardcoded path:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `LUMEN_LANGUAGES_ROOT` | unset | Absolute path to a local source-built toolchain root: a directory holding `gcc/` and `llvm/` source trees you built yourself. When set, `--oracle c` prefers `$LUMEN_LANGUAGES_ROOT/gcc/build/gcc/xgcc` and `--oracle cpp` prefers `$LUMEN_LANGUAGES_ROOT/llvm/build/bin/clang++`. |
+
+With the variable unset (the default, and the state of a fresh clone), or set but with no
+prebuilt binary at those paths yet, discovery skips the source-built candidate and falls back
+to whatever `gcc`/`clang` (C) or `clang++`/`g++` (C++) is on `PATH`, exactly the same fallback
+discipline the repo's bench/vs-lang track already uses. Whichever compiler is actually used,
+its binary path, a human label (`"source-built gcc (prebuilt, $LUMEN_LANGUAGES_ROOT/gcc)"` vs
+`"system gcc"` etc.), and its `--version` banner are recorded in the frozen fixture's
+`oracle.compiler` / `oracle.compiler_bin` / `oracle.version_at_absorption` fields, so it is
+always inspectable after the fact which compiler produced the ground truth, never silently
+assumed. As of this writing no source-built GCC or LLVM tree was available at absorption time
+(a from-source build of either is a multi-hour undertaking), so every C/C++ absorption to date
+in this repo used the **system** compiler (Apple clang, both as `gcc`/`clang` and as
+`clang++`), visible per-fixture in the `oracle.compiler` field.
 
 **Hermeticity is unchanged by the new backends.** `tools/absorb/absorb_gate.mjs` (the CI
 gate) never re-executes any oracle, Python or C/C++: it only re-runs the Lumen candidate

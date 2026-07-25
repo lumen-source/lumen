@@ -1,8 +1,8 @@
-# Black-Scholes price + all 13 Greeks in native Lumen: a port of the blackScholesGreeks
-# primitive in volatility_surface.js that drives the Greeks Surfaces and Options Analyzer
-# tabs on beta-app.fdv-quants.com/volatility-surface. Uses the Abramowitz-Stegun (a1..a5)
-# normal CDF the JS ships, so the numbers match that surface exactly.
-# Probe (call, S=100 K=100 T=1 r=.045 sigma=.21 q=0), each value scaled x1e12:
+# Black-Scholes price + all 13 Greeks in native Lumen: delta, gamma, theta, vega, rho,
+# vanna, charm, vomma, speed, zomma, color, ultima, veta. The normal CDF is the
+# Abramowitz-Stegun (a1..a5) rational approximation, so any implementation using that
+# same approximation reproduces these values exactly.
+# Reference oracle (call, S=100 K=100 T=1 r=.045 sigma=.21 q=0), each value scaled x1e12:
 #   price 10564878806636  delta 625244998846  gamma 18053194042  theta -17312088315
 #   vega 379117074890  rho 519596210780  vanna -197295620606  charm 60523333027
 #   vomma 6299367315063  speed -455014176  zomma -82967891957  color -9946798717
