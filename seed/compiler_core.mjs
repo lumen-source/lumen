@@ -25,7 +25,12 @@ import fs from 'node:fs';
 import { compileToIRNativeRaw } from '../native/native_compile.mjs';
 import { compileToIRResidentSync, stopResidentSyncBridge } from '../native/resident_sync.mjs';
 import { createInterpreter, CODE_BASE as INTERP_CODE_BASE } from '../native/ir_interpreter.mjs';
-import { findReadCapabilityCalls } from './diagnostics.mjs';
+import { findReadCapabilityCalls, findUnknownTopLevelDiags } from './diagnostics.mjs';
+
+export const COMPILER_MODULES = ['lumenc_core', 'lumenc_emit'];
+export function isCompilerModule(name) {
+  return name === 'lumenc_core' || name === 'lumenc_emit';
+}
 
 // Once the resident bridge fails for any reason, stop retrying it for the rest of this process
 // (a fresh process gets a fresh worker + fresh resident child - see resident_sync.mjs).
@@ -130,13 +135,21 @@ export async function createCompiler() {
     if (srclen > SRC_CAPACITY) {   // guard: mirrors the wasm seed's SRC-capacity guard (BUG-safe: a too-long source must not silently corrupt anything downstream)
       throw new Error(`source ${srclen}B exceeds SRC capacity ${SRC_CAPACITY}B`);
     }
+    const topDiags = findUnknownTopLevelDiags(source);
+    if (topDiags.length > 0) {
+      return { ok: false, irWords: 0, main: 0, srclen, rawDiags: topDiags };
+    }
+    let prepSource = source;
+    if (source.includes('import lumenc_') || source.includes('module lumenc_')) {
+      prepSource = source.replace(/^(import|module)\s+lumenc_(core|emit).*/gm, m => ' '.repeat(m.length));
+    }
     let r;
     if (!residentBridgeBroken) {
-      try { r = compileToIRResidentSync(source); }
+      try { r = compileToIRResidentSync(prepSource); }
       catch (e) { residentBridgeBroken = true; warnResidentFallbackOnce(e); }
     }
     if (!r) {
-      try { r = compileToIRNativeRaw(source); }
+      try { r = compileToIRNativeRaw(prepSource); }
       catch (e) { return { ok: false, irWords: 0, main: 0, srclen, rawDiags: [], crash: String(e.message || e) }; }
     }
     const readCalls = findReadCapabilityCalls(source);

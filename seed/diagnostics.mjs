@@ -131,7 +131,7 @@ export function findCapabilityReceiverDiags(source, existingDiags = []) {
   return diags;
 }
 
-function findUnknownTopLevelDiags(source) {
+export function findUnknownTopLevelDiags(source) {
   if (!source) return [];
   const diags = [];
   let i = 0;
@@ -196,6 +196,25 @@ function findUnknownTopLevelDiags(source) {
         if (i < len && source[i] === '{') {
           braceDepth = 1;
           i++;
+        }
+      } else if (word === 'import' || word === 'module') {
+        let j = i;
+        while (j < len && (source[j] === ' ' || source[j] === '\t')) j++;
+        const modStart = j;
+        if (j < len && /[a-zA-Z_]/.test(source[j])) {
+          while (j < len && /[a-zA-Z0-9_]/.test(source[j])) j++;
+          const modName = source.slice(modStart, j);
+          if (modName === 'lumenc_core' || modName === 'lumenc_emit') {
+            i = j;
+            while (i < len && source[i] !== '\n') i++;
+          } else {
+            diags.push({ code: 3, byteOff: start, byteLen: word.length, name: word });
+            diags.push({ code: 3, byteOff: modStart, byteLen: modName.length, name: modName });
+            i = j;
+            while (i < len && source[i] !== '\n') i++;
+          }
+        } else {
+          diags.push({ code: 3, byteOff: start, byteLen: word.length, name: word });
         }
       } else {
         diags.push({ code: 3, byteOff: start, byteLen: word.length, name: word });
