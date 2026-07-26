@@ -294,6 +294,8 @@ fn ty_tag(off: Int, len: Int) -> Int {
   if is_str_float_ty(off, len) == 1 { return 1 }
   if is_str_dec_ty(off, len) == 1 { return 2 }
   if len == 4 and load8(off) == 66 and load8(off+1) == 111 and load8(off+2) == 111 and load8(off+3) == 108 { return 3 }
+  if len == 7 and load8(off) == 67 and load8(off+1) == 111 and load8(off+2) == 110 and load8(off+3) == 115 and load8(off+4) == 111 and load8(off+5) == 108 and load8(off+6) == 101 { return 4 }
+  if len == 4 and load8(off) == 82 and load8(off+1) == 101 and load8(off+2) == 97 and load8(off+3) == 100 { return 5 }
   return 0
 }
 
@@ -1478,8 +1480,13 @@ fn c_primary() -> Unit {
           c_expr()
         }
         adv()
-        # E0010: resolve the receiver (was discarded here, so any name could print).
-        if var_find(off, length) < 0 {
+        # E0010: resolve the receiver and verify it is a capability type (Console or Read).
+        let slot = var_find(off, length)
+        var ttag = 0
+        if slot >= 0 {
+          ttag = slot_type(slot)
+        }
+        if slot < 0 or (ttag != 4 and ttag != 5) {
           err_add(10, off, length)
         }
         if is_str_console_print(moff, mlen) == 1 {
