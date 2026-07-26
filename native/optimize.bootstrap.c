@@ -188,6 +188,59 @@ static void lm_printtext(int64_t a) {
   int32_t len = *(int32_t*)a;
   fwrite((char*)a + 4, 1, len, stdout);
 }
+static int64_t lm_read_file(int64_t path_ptr) {
+  if (!path_ptr) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  int32_t plen = *(int32_t*)path_ptr;
+  char* path = (char*)malloc(plen + 1);
+  if (!path) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  memcpy(path, (char*)path_ptr + 4, plen);
+  path[plen] = '\0';
+  char mode[3]; mode[0] = 114; mode[1] = 98; mode[2] = 0;
+  FILE* f = fopen(path, mode);
+  free(path);
+  if (!f) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (sz < 0) sz = 0;
+  int64_t ptr = lm_alloc_bytes(4 + sz);
+  *(int32_t*)ptr = (int32_t)sz;
+  if (sz > 0) {
+    size_t nread = fread((char*)ptr + 4, 1, sz, f);
+    (void)nread;
+  }
+  fclose(f);
+  return ptr;
+}
+static int64_t lm_read_line(int64_t path_ptr) {
+  if (!path_ptr) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  int32_t plen = *(int32_t*)path_ptr;
+  char* path = (char*)malloc(plen + 1);
+  if (!path) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  memcpy(path, (char*)path_ptr + 4, plen);
+  path[plen] = '\0';
+  char mode2[3]; mode2[0] = 114; mode2[1] = 98; mode2[2] = 0;
+  FILE* f = fopen(path, mode2);
+  free(path);
+  if (!f) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (sz < 0) sz = 0;
+  char* buf = (char*)malloc(sz + 1);
+  if (!buf) { fclose(f); int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  size_t nread = fread(buf, 1, sz, f);
+  fclose(f);
+  int32_t line_len = 0;
+  while (line_len < (int32_t)nread && buf[line_len] != 10 && buf[line_len] != 13) {
+    line_len++;
+  }
+  int64_t ptr = lm_alloc_bytes(4 + line_len);
+  *(int32_t*)ptr = line_len;
+  if (line_len > 0) memcpy((char*)ptr + 4, buf, line_len);
+  free(buf);
+  return ptr;
+}
 __attribute__((always_inline)) static int64_t f0(void);
 __attribute__((always_inline)) static int64_t f12(void);
 __attribute__((always_inline)) static int64_t f26(int64_t p0);
@@ -1900,7 +1953,7 @@ int64_t F0=0;
 int64_t F1=0;
 int64_t F2=0;
 L2834: s0=F0;
-L2836: s0=f1090(s0);
+L2836: s0=f1090(d2l(sd0));
 L2839: F2=s0;
 L2847: exit(0);
 return 0;}
