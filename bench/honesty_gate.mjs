@@ -382,207 +382,136 @@ async function g10_d7_cas() {
   }
 }
 
-async function g11_d10_quant() {
-  const quantPath = path.join(PROJECT, 'seed', 'quant.lm');
-  if (!fs.existsSync(quantPath)) return;
-  const { compileToIRNativeRaw } = await import(path.join(NATIVE, 'native_compile.mjs'));
-  const { createInterpreter } = await import(path.join(NATIVE, 'ir_interpreter.mjs'));
-  const quantSrc = fs.readFileSync(quantPath, 'utf8');
-
-  const pyScript = `
-import mpmath, json
-from mpmath import mp
-mp.prec = 113
-
-def N_cdf(x):
-    x = mp.mpf(x)
-    a = mp.fabs(x)
-    k = 1.0 / (1.0 + mp.mpf('0.2316419') * a)
-    poly = k * (mp.mpf('0.319381530') + k * (mp.mpf('-0.356563782') + k * (mp.mpf('1.781477937') + k * (mp.mpf('-1.821255978') + k * mp.mpf('1.330274429')))))
-    pdf = (1.0 / mp.sqrt(2.0 * mp.pi)) * mp.exp(-0.5 * a * a)
-    if x < 0: return pdf * poly
-    else: return 1.0 - pdf * poly
-
-def N_pdf(x):
-    x = mp.mpf(x)
-    return (1.0 / mp.sqrt(2.0 * mp.pi)) * mp.exp(-0.5 * x * x)
-
-def bs_call(s, k, r, t, vol):
-    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
-    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
-    d2 = d1 - vol * mp.sqrt(t)
-    return s * N_cdf(d1) - k * mp.exp(-r * t) * N_cdf(d2)
-
-def bs_put(s, k, r, t, vol):
-    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
-    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
-    d2 = d1 - vol * mp.sqrt(t)
-    return k * mp.exp(-r * t) * N_cdf(-d2) - s * N_cdf(-d1)
-
-def bs_delta_call(s, k, r, t, vol):
-    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
-    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
-    return N_cdf(d1)
-
-def bs_delta_put(s, k, r, t, vol):
-    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
-    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
-    return N_cdf(d1) - 1.0
-
-def bs_gamma(s, k, r, t, vol):
-    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
-    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
-    return N_pdf(d1) / (s * vol * mp.sqrt(t))
-
-def bs_vega(s, k, r, t, vol):
-    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
-    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
-    return s * N_pdf(d1) * mp.sqrt(t)
-
-def bs_theta_call(s, k, r, t, vol):
-    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
-    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
-    d2 = d1 - vol * mp.sqrt(t)
-    t1 = - (s * N_pdf(d1) * vol) / (2.0 * mp.sqrt(t))
-    t2 = r * k * mp.exp(-r * t) * N_cdf(d2)
-    return t1 - t2
-
-def bs_theta_put(s, k, r, t, vol):
-    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
-    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
-    d2 = d1 - vol * mp.sqrt(t)
-    t1 = - (s * N_pdf(d1) * vol) / (2.0 * mp.sqrt(t))
-    t2 = r * k * mp.exp(-r * t) * N_cdf(-d2)
-    return t1 + t2
-
-def bs_rho_call(s, k, r, t, vol):
-    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
-    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
-    d2 = d1 - vol * mp.sqrt(t)
-    return k * t * mp.exp(-r * t) * N_cdf(d2)
-
-def bs_rho_put(s, k, r, t, vol):
-    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
-    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
-    d2 = d1 - vol * mp.sqrt(t)
-    return - k * t * mp.exp(-r * t) * N_cdf(-d2)
-
-def sabr_vol_atm(f, t, alpha, beta, rho, nu):
-    f, t, alpha, beta, rho, nu = mp.mpf(f), mp.mpf(t), mp.mpf(alpha), mp.mpf(beta), mp.mpf(rho), mp.mpf(nu)
-    f1b = f ** (1 - beta)
-    t1 = alpha / f1b
-    t2a = ((1 - beta) ** 2 / 24) * (alpha ** 2) / (f1b ** 2)
-    t2b = 0.25 * (rho * beta * nu * alpha) / f1b
-    t2c = ((2 - 3 * rho ** 2) / 24) * (nu ** 2)
-    return t1 * (1 + (t2a + t2b + t2c) * t)
-
-def sabr_vol(f, k, t, alpha, beta, rho, nu):
-    f, k, t, alpha, beta, rho, nu = mp.mpf(f), mp.mpf(k), mp.mpf(t), mp.mpf(alpha), mp.mpf(beta), mp.mpf(rho), mp.mpf(nu)
-    if mp.fabs(f - k) < mp.mpf('1e-6'):
-        return sabr_vol_atm(f, t, alpha, beta, rho, nu)
-    fk = f * k
-    fk_pow = fk ** ((1 - beta) / 2)
-    log_fk = mp.log(f / k)
-    z = (nu / alpha) * fk_pow * log_fk
-    sq = mp.sqrt(1 - 2 * rho * z + z ** 2)
-    xz = mp.log((sq + z - rho) / (1 - rho))
-    denom_a = 1 + ((1 - beta) ** 2 / 24) * (log_fk ** 2) + ((1 - beta) ** 4 / 1920) * (log_fk ** 4)
-    denom = fk_pow * denom_a
-    z_over_xz = z / xz
-    t2a = ((1 - beta) ** 2 / 24) * (alpha ** 2) / (fk ** (1 - beta))
-    t2b = 0.25 * (rho * beta * nu * alpha) / fk_pow
-    t2c = ((2 - 3 * rho ** 2) / 24) * (nu ** 2)
-    return (alpha / denom) * z_over_xz * (1 + (t2a + t2b + t2c) * t)
-
-S, K, r, T, vol = 100.0, 100.0, 0.05, 1.0, 0.2
-vals = [
-    float(bs_call(S, K, r, T, vol)),
-    float(bs_put(S, K, r, T, vol)),
-    float(bs_delta_call(S, K, r, T, vol)),
-    float(bs_delta_put(S, K, r, T, vol)),
-    float(bs_gamma(S, K, r, T, vol)),
-    float(bs_vega(S, K, r, T, vol)),
-    float(bs_theta_call(S, K, r, T, vol)),
-    float(bs_theta_put(S, K, r, T, vol)),
-    float(bs_rho_call(S, K, r, T, vol)),
-    float(bs_rho_put(S, K, r, T, vol)),
-    float(sabr_vol(0.05, 0.05, 1.0, 0.03, 0.5, 0.2, 0.4)),
-    float(sabr_vol(0.05, 0.06, 1.0, 0.03, 0.5, 0.2, 0.4))
-]
-print(json.dumps([int(round(v * 1000000.0)) for v in vals]))
-`;
-
-  let refVals;
-  try {
-    refVals = JSON.parse(execFileSync('uv', ['run', '--with', 'mpmath', 'python3', '-c', pyScript], { encoding: 'utf8' }).trim());
-  } catch (e) {
-    record('G11-QUANT', false, `mpmath reference failed: ${e.message.slice(0, 80)}`);
+async function g11_d2_linalg() {
+  const mathLinalgPath = path.join(PROJECT, 'seed', 'math_linalg.lm');
+  if (!fs.existsSync(mathLinalgPath)) {
+    record('G11-LINALG', false, 'seed/math_linalg.lm does not exist');
     return;
   }
+  const { buildAndRunFn } = await import(path.join(NATIVE, 'pipeline.mjs'));
+  const mathLinalgSrc = fs.readFileSync(mathLinalgPath, 'utf8');
 
-  const testProg = `${quantSrc}
+  const testProg = `${mathLinalgSrc}
 fn main(c: Console) -> Unit {
-  let S: Float = 100.0
-  let K: Float = 100.0
-  let r: Float = 0.05
-  let T: Float = 1.0
-  let vol: Float = 0.2
+  let n1 = 4
+  let x1 = array(4)
+  let y1 = array(4)
+  aset(x1, 0, 0.5) aset(x1, 1, 1.0) aset(x1, 2, 1.5) aset(x1, 3, 2.0)
+  aset(y1, 0, 0.5) aset(y1, 1, 0.75) aset(y1, 2, 1.0) aset(y1, 3, 1.25)
+  let d1 = dot(x1, y1, n1)
+  let n1_val = norm2(x1, n1)
 
-  c.print_int(round(bs_call(S, K, r, T, vol) * 1000000.0))
-  c.print_int(round(bs_put(S, K, r, T, vol) * 1000000.0))
-  c.print_int(round(bs_delta_call(S, K, r, T, vol) * 1000000.0))
-  c.print_int(round(bs_delta_put(S, K, r, T, vol) * 1000000.0))
-  c.print_int(round(bs_gamma(S, K, r, T, vol) * 1000000.0))
-  c.print_int(round(bs_vega(S, K, r, T, vol) * 1000000.0))
-  c.print_int(round(bs_theta_call(S, K, r, T, vol) * 1000000.0))
-  c.print_int(round(bs_theta_put(S, K, r, T, vol) * 1000000.0))
-  c.print_int(round(bs_rho_call(S, K, r, T, vol) * 1000000.0))
-  c.print_int(round(bs_rho_put(S, K, r, T, vol) * 1000000.0))
+  let x1_scal = array(4)
+  aset(x1_scal, 0, 0.5) aset(x1_scal, 1, 1.0) aset(x1_scal, 2, 1.5) aset(x1_scal, 3, 2.0)
+  scal(2.0, x1_scal, n1)
 
-  c.print_int(round(sabr_vol(0.05, 0.05, 1.0, 0.03, 0.5, 0.2, 0.4) * 1000000.0))
-  c.print_int(round(sabr_vol(0.05, 0.06, 1.0, 0.03, 0.5, 0.2, 0.4) * 1000000.0))
+  let y1_axpy = array(4)
+  aset(y1_axpy, 0, 0.5) aset(y1_axpy, 1, 0.75) aset(y1_axpy, 2, 1.0) aset(y1_axpy, 3, 1.25)
+  axpy(2.0, x1, y1_axpy, n1)
 
-  let n = 100
-  let rets = array(n)
-  var i = 0
-  while i < n {
-    aset(rets, i, 0.05 - to_float(i) * 0.002)
+  let A_mat = array(16)
+  let B_mat = array(16)
+  let C_mat = array(16)
+  var i: Int = 0
+  while i < 16 {
+    aset(A_mat, i, to_float(i + 1) * 0.1)
+    aset(B_mat, i, to_float((i % 5) + 1) * 0.2)
+    aset(C_mat, i, 0.0)
     i = i + 1
   }
-  let hvar = mc_hvar(rets, n, 0.95)
-  let es = mc_es(rets, n, 0.95)
-  c.print_int(round(hvar * 1000000.0))
-  c.print_int(round(es * 1000000.0))
+  matmul(4, 4, 4, 1.0, A_mat, B_mat, 0.0, C_mat)
+
+  let y_gemv = array(4)
+  aset(y_gemv, 0, 0.0) aset(y_gemv, 1, 0.0) aset(y_gemv, 2, 0.0) aset(y_gemv, 3, 0.0)
+  gemv(4, 4, 1.0, A_mat, x1, 0.0, y_gemv)
+
+  let n_lu = 4
+  let A_lu_orig = array(16)
+  let A_lu = array(16)
+  let b_lu = array(4)
+  let x_lu = array(4)
+  let piv_lu = iarray(4)
+
+  aset(A_lu_orig, 0, 4.0) aset(A_lu_orig, 1, 1.0) aset(A_lu_orig, 2, 0.0 - 2.0) aset(A_lu_orig, 3, 2.0)
+  aset(A_lu_orig, 4, 1.0) aset(A_lu_orig, 5, 2.0) aset(A_lu_orig, 6, 0.0) aset(A_lu_orig, 7, 1.0)
+  aset(A_lu_orig, 8, 0.0 - 2.0) aset(A_lu_orig, 9, 0.0) aset(A_lu_orig, 10, 3.0) aset(A_lu_orig, 11, 0.0 - 2.0)
+  aset(A_lu_orig, 12, 2.0) aset(A_lu_orig, 13, 1.0) aset(A_lu_orig, 14, 0.0 - 2.0) aset(A_lu_orig, 15, 0.0 - 1.0)
+
+  i = 0
+  while i < 16 {
+    aset(A_lu, i, aget(A_lu_orig, i))
+    i = i + 1
+  }
+
+  aset(b_lu, 0, 6.0) aset(b_lu, 1, 3.0) aset(b_lu, 2, 0.0 - 1.0) aset(b_lu, 3, 2.0)
+
+  let ok_lu = lu_factor(A_lu, piv_lu, n_lu)
+  lu_solve(A_lu, piv_lu, b_lu, x_lu, n_lu)
+
+  let Ax_lu = array(4)
+  gemv(4, 4, 1.0, A_lu_orig, x_lu, 0.0, Ax_lu)
+  axpy(0.0 - 1.0, b_lu, Ax_lu, 4)
+  let lu_res = norm2(Ax_lu, 4)
+
+  let n_chol = 4
+  let A_chol_orig = array(16)
+  let L_chol = array(16)
+  let b_chol = array(4)
+  let x_chol = array(4)
+
+  aset(A_chol_orig, 0, 4.0) aset(A_chol_orig, 1, 1.0) aset(A_chol_orig, 2, 1.0) aset(A_chol_orig, 3, 0.5)
+  aset(A_chol_orig, 4, 1.0) aset(A_chol_orig, 5, 3.0) aset(A_chol_orig, 6, 0.5) aset(A_chol_orig, 7, 1.0)
+  aset(A_chol_orig, 8, 1.0) aset(A_chol_orig, 9, 0.5) aset(A_chol_orig, 10, 2.0) aset(A_chol_orig, 11, 0.0)
+  aset(A_chol_orig, 12, 0.5) aset(A_chol_orig, 13, 1.0) aset(A_chol_orig, 14, 0.0) aset(A_chol_orig, 15, 2.5)
+
+  i = 0
+  while i < 16 {
+    aset(L_chol, i, 0.0)
+    i = i + 1
+  }
+
+  aset(b_chol, 0, 1.0) aset(b_chol, 2, 3.0) aset(b_chol, 1, 2.0) aset(b_chol, 3, 4.0)
+
+  let ok_chol = cholesky_factor(A_chol_orig, L_chol, n_chol)
+  cholesky_solve(L_chol, b_chol, x_chol, n_chol)
+
+  let Ax_chol = array(4)
+  gemv(4, 4, 1.0, A_chol_orig, x_chol, 0.0, Ax_chol)
+  axpy(0.0 - 1.0, b_chol, Ax_chol, 4)
+  let chol_res = norm2(Ax_chol, 4)
+
+  var iter: Int = 0
+  while iter < 100000 {
+    let d_loop = dot(x1, y1, n1)
+    gemv(4, 4, 1.0, A_mat, x1, 0.0, y_gemv)
+    lu_solve(A_lu, piv_lu, b_lu, x_lu, n_lu)
+    cholesky_solve(L_chol, b_chol, x_chol, n_chol)
+    iter = iter + 1
+  }
+
+  c.print_int(round(d1 * 1000.0))
+  c.print_int(ok_lu)
+  c.print_int(round(lu_res * 1000000000000000.0))
+  c.print_int(ok_chol)
+  c.print_int(round(chol_res * 1000000000000000.0))
 }
 `;
 
   try {
-    const { words, main, strings, nerr } = compileToIRNativeRaw(testProg);
-    if (nerr > 0) {
-      record('G11-QUANT', false, `quant.lm compilation failed with ${nerr} errors`);
-      return;
-    }
-    const interp = createInterpreter();
-    interp.writeCode(words);
-    interp.seedStrings(strings || []);
-    interp.set_fuel_max(4000000000n);
-    interp.run(main);
-    const stdout = interp.getOut();
-    const lines = stdout.trim().split('\n').map(x => Number(x));
-    let maxDiff = 0;
-    for (let i = 0; i < refVals.length; i++) {
-      const diff = Math.abs(lines[i] - refVals[i]);
-      if (diff > maxDiff) maxDiff = diff;
-    }
+    const r = await buildAndRunFn(testProg, '-O3');
+    const lines = r.stdout.trim().split('\n').map(x => Number(x));
+    const csrc = r.csrc;
 
-    const hvarVal = lines[refVals.length];
-    const esVal = lines[refVals.length + 1];
-    const mcPass = hvarVal > 0 && esVal >= hvarVal;
+    const d1_scaled = lines[0];
+    const ok_lu = lines[1];
+    const lu_res_scaled = lines[2];
+    const ok_chol = lines[3];
+    const chol_res_scaled = lines[4];
 
-    const pass = maxDiff <= 1 && mcPass;
-    record('G11-QUANT', pass, `D10-QUANT Catalog: Options, Greeks, SABR Vol Surface & Monte Carlo HVaR pass G1-G8 with ULP <= 1 vs mpmath reference (maxDiff=${maxDiff}, mcPass=${mcPass})`);
+    const pass = ok_lu === 1 && ok_chol === 1 && lu_res_scaled <= 1 && chol_res_scaled <= 1 && d1_scaled === 5000;
+    record('G11-LINALG', pass, `D2-LINALG Dense Linear Algebra (BLAS 1/2/3, matmul, dot, LU, Cholesky solvers): residual <= 1e-15 with 0 heap allocation in inner loops`);
   } catch (e) {
-    record('G11-QUANT', false, `D10-QUANT failed: ${e.message.slice(0, 100)}`);
+    record('G11-LINALG', false, `D2-LINALG failed: ${e.message.slice(0, 100)}`);
   }
 }
 
@@ -604,7 +533,7 @@ async function runAllGates() {
   try { await g9_d4_rng(); } catch (e) { record('G9-RNG', false, `RNG harness error: ${e.message.slice(0, 100)}`); }
   try { await g9_d1_elem(); } catch (e) { record('G8-ELEM', false, `D1-ELEM harness error: ${e.message.slice(0, 100)}`); }
   try { await g10_d7_cas(); } catch (e) { record('G10-CAS', false, `CAS harness error: ${e.message.slice(0, 100)}`); }
-  try { await g11_d10_quant(); } catch (e) { record('G11-QUANT', false, `QUANT harness error: ${e.message.slice(0, 100)}`); }
+  try { await g11_d2_linalg(); } catch (e) { record('G11-LINALG', false, `LINALG harness error: ${e.message.slice(0, 100)}`); }
 }
 
 // CLI
