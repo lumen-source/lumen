@@ -3,7 +3,7 @@
 // compiler behavior in isolation, so a change that breaks one basic fails one named test
 // instead of a tangle of examples. Fast: one warm compiler for the whole run.
 // Usage: node basics.mjs
-import { createCompiler, isCapabilityType, read_file, read_line, OPS, COMPILER_MODULES, isCompilerModule } from './compiler_core.mjs';
+import { createCompiler, isCapabilityType, read_file, read_line, OPS, COMPILER_MODULES, isCompilerModule, CLOSURE_OPS, isClosureOpcode, isFunctionType } from './compiler_core.mjs';
 import { isCapabilityType as isCapPipe, read_file as readFilePipe, read_line as readLinePipe } from '../native/pipeline.mjs';
 import { buildDiagnostics, applyFixes } from './diagnostics.mjs';
 import fs from 'node:fs';
@@ -505,6 +505,13 @@ deepEq('lumenc.lm compiles clean', codesOf(fs.readFileSync(fs.existsSync('seed/l
   eq('default fuel: unaffected, program completes', rDefault.stdout, '42\n');
   eq('default fuel: fuelExhausted is false on a trivial program', rDefault.fuelExhausted, false);
 }
+
+// Track A: Language Core - Closures & First-Class Functions (AGY-E1.5)
+eq('compiler_core exports MKCLOSURE opcode', OPS[73], 'MKCLOSURE');
+eq('compiler_core exports CALLCLOSURE opcode', OPS[74], 'CALLCLOSURE');
+eq('CLOSURE_OPS contains MKCLOSURE and CALLCLOSURE', CLOSURE_OPS.MKCLOSURE === 73 && CLOSURE_OPS.CALLCLOSURE === 74, true);
+eq('isClosureOpcode recognizes 73 and 74', isClosureOpcode(73) && isClosureOpcode(74) && !isClosureOpcode(8), true);
+eq('isFunctionType recognizes function signatures', isFunctionType('fn(Int) -> Int') && isFunctionType('Closure[Int, Int]') && !isFunctionType('Int'), true);
 
 console.log(`\n${pass}/${total} basics checks passed.`);
 process.exit(pass === total ? 0 : 1);

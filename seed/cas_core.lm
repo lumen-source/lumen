@@ -1,0 +1,286 @@
+# cas_core.lm: D7-CAS Symbolic Algebra Engine: Expression DAG & Symbolic Differentiation
+# Implements expression DAG node pool, hash-consing deduplication, algebraic simplification,
+# symbolic differentiation, and expression formatting.
+
+fn pool_base() -> Int { return 700000 }
+fn get_node_count() -> Int { return load32(699996) }
+fn set_node_count(c: Int) -> Unit { store32(699996, c) }
+
+fn node_kind(id: Int) -> Int { return load32(pool_base() + id * 16) }
+fn node_op1(id: Int) -> Int { return load32(pool_base() + id * 16 + 4) }
+fn node_op2(id: Int) -> Int { return load32(pool_base() + id * 16 + 8) }
+
+fn init_cas() -> Unit {
+  set_node_count(0)
+}
+
+# Raw node allocator with Hash-Consing (DAG deduplication)
+fn alloc_node(kind: Int, op1: Int, op2: Int) -> Int {
+  let count = get_node_count()
+  var i = 0
+  while i < count {
+    if node_kind(i) == kind {
+      if node_op1(i) == op1 {
+        if node_op2(i) == op2 {
+          return i
+        }
+      }
+    }
+    i = i + 1
+  }
+  let id = count
+  store32(pool_base() + id * 16, kind)
+  store32(pool_base() + id * 16 + 4, op1)
+  store32(pool_base() + id * 16 + 8, op2)
+  store32(pool_base() + id * 16 + 12, 0)
+  set_node_count(count + 1)
+  return id
+}
+
+# Constructors with Algebraic Simplification & Canonicalization
+fn mk_const(v: Int) -> Int { return alloc_node(1, v, 0) }
+fn mk_var(v: Int) -> Int { return alloc_node(2, v, 0) }
+
+fn mk_neg(a: Int) -> Int {
+  if node_kind(a) == 1 { return mk_const(0 - node_op1(a)) }
+  if node_kind(a) == 8 { return node_op1(a) }
+  return alloc_node(8, a, 0)
+}
+
+fn mk_add(a: Int, b: Int) -> Int {
+  if node_kind(a) == 1 {
+    if node_kind(b) == 1 { return mk_const(node_op1(a) + node_op1(b)) }
+    if node_op1(a) == 0 { return b }
+  }
+  if node_kind(b) == 1 {
+    if node_op1(b) == 0 { return a }
+  }
+  var l = a
+  var r = b
+  if l > r {
+    l = b
+    r = a
+  }
+  return alloc_node(3, l, r)
+}
+
+fn mk_sub(a: Int, b: Int) -> Int {
+  if node_kind(a) == 1 {
+    if node_kind(b) == 1 { return mk_const(node_op1(a) - node_op1(b)) }
+    if node_op1(a) == 0 { return mk_neg(b) }
+  }
+  if node_kind(b) == 1 {
+    if node_op1(b) == 0 { return a }
+  }
+  if a == b { return mk_const(0) }
+  return alloc_node(4, a, b)
+}
+
+fn mk_mul(a: Int, b: Int) -> Int {
+  if node_kind(a) == 1 {
+    if node_kind(b) == 1 { return mk_const(node_op1(a) * node_op1(b)) }
+    if node_op1(a) == 0 { return mk_const(0) }
+    if node_op1(a) == 1 { return b }
+  }
+  if node_kind(b) == 1 {
+    if node_op1(b) == 0 { return mk_const(0) }
+    if node_op1(b) == 1 { return a }
+  }
+  var l = a
+  var r = b
+  if l > r {
+    l = b
+    r = a
+  }
+  return alloc_node(5, l, r)
+}
+
+fn mk_div(a: Int, b: Int) -> Int {
+  if node_kind(a) == 1 {
+    if node_kind(b) == 1 {
+      if node_op1(b) != 0 {
+        if node_op1(a) % node_op1(b) == 0 { return mk_const(node_op1(a) / node_op1(b)) }
+      }
+    }
+    if node_op1(a) == 0 { return mk_const(0) }
+  }
+  if node_kind(b) == 1 {
+    if node_op1(b) == 1 { return a }
+  }
+  if a == b { return mk_const(1) }
+  return alloc_node(6, a, b)
+}
+
+fn mk_pow(base: Int, exp_node: Int) -> Int {
+  if node_kind(exp_node) == 1 {
+    if node_op1(exp_node) == 0 { return mk_const(1) }
+    if node_op1(exp_node) == 1 { return base }
+  }
+  if node_kind(base) == 1 {
+    if node_op1(base) == 0 { return mk_const(0) }
+    if node_op1(base) == 1 { return mk_const(1) }
+  }
+  return alloc_node(7, base, exp_node)
+}
+
+fn mk_exp(a: Int) -> Int {
+  if node_kind(a) == 1 {
+    if node_op1(a) == 0 { return mk_const(1) }
+  }
+  if node_kind(a) == 10 { return node_op1(a) }
+  return alloc_node(9, a, 0)
+}
+
+fn mk_ln(a: Int) -> Int {
+  if node_kind(a) == 1 {
+    if node_op1(a) == 1 { return mk_const(0) }
+  }
+  if node_kind(a) == 9 { return node_op1(a) }
+  return alloc_node(10, a, 0)
+}
+
+fn mk_sin(a: Int) -> Int {
+  if node_kind(a) == 1 {
+    if node_op1(a) == 0 { return mk_const(0) }
+  }
+  return alloc_node(11, a, 0)
+}
+
+fn mk_cos(a: Int) -> Int {
+  if node_kind(a) == 1 {
+    if node_op1(a) == 0 { return mk_const(1) }
+  }
+  return alloc_node(12, a, 0)
+}
+
+# Symbolic Differentiation wrt variable wrt_var (0 = x, 1 = y)
+fn diff(n: Int, wrt_var: Int) -> Int {
+  let k = node_kind(n)
+  if k == 1 { return mk_const(0) }
+  if k == 2 {
+    if node_op1(n) == wrt_var { return mk_const(1) }
+    return mk_const(0)
+  }
+  let u = node_op1(n)
+  let v = node_op2(n)
+  if k == 3 { return mk_add(diff(u, wrt_var), diff(v, wrt_var)) }
+  if k == 4 { return mk_sub(diff(u, wrt_var), diff(v, wrt_var)) }
+  if k == 5 { return mk_add(mk_mul(diff(u, wrt_var), v), mk_mul(u, diff(v, wrt_var))) }
+  if k == 6 {
+    let num = mk_sub(mk_mul(diff(u, wrt_var), v), mk_mul(u, diff(v, wrt_var)))
+    let den = mk_pow(v, mk_const(2))
+    return mk_div(num, den)
+  }
+  if k == 7 {
+    if node_kind(v) == 1 {
+      let c = node_op1(v)
+      let p = mk_pow(u, mk_const(c - 1))
+      return mk_mul(mk_mul(v, p), diff(u, wrt_var))
+    }
+    let term1 = mk_mul(diff(v, wrt_var), mk_ln(u))
+    let term2 = mk_div(mk_mul(v, diff(u, wrt_var)), u)
+    return mk_mul(mk_pow(u, v), mk_add(term1, term2))
+  }
+  if k == 8 { return mk_neg(diff(u, wrt_var)) }
+  if k == 9 { return mk_mul(mk_exp(u), diff(u, wrt_var)) }
+  if k == 10 { return mk_div(diff(u, wrt_var), u) }
+  if k == 11 { return mk_mul(mk_cos(u), diff(u, wrt_var)) }
+  if k == 12 { return mk_mul(mk_neg(mk_sin(u)), diff(u, wrt_var)) }
+  return mk_const(0)
+}
+
+fn print_node_expr(c: Console, n: Int) -> Unit {
+  let k = node_kind(n)
+  if k == 1 {
+    c.print_int(node_op1(n))
+  }
+  if k == 2 {
+    if node_op1(n) == 0 {
+      c.print("x")
+    } else {
+      c.print("y")
+    }
+  }
+  let u = node_op1(n)
+  let v = node_op2(n)
+  if k == 3 {
+    c.print("(")
+    print_node_expr(c, u)
+    c.print(" + ")
+    print_node_expr(c, v)
+    c.print(")")
+  }
+  if k == 4 {
+    c.print("(")
+    print_node_expr(c, u)
+    c.print(" - ")
+    print_node_expr(c, v)
+    c.print(")")
+  }
+  if k == 5 {
+    c.print("(")
+    print_node_expr(c, u)
+    c.print(" * ")
+    print_node_expr(c, v)
+    c.print(")")
+  }
+  if k == 6 {
+    c.print("(")
+    print_node_expr(c, u)
+    c.print(" / ")
+    print_node_expr(c, v)
+    c.print(")")
+  }
+  if k == 7 {
+    c.print("(")
+    print_node_expr(c, u)
+    c.print("**")
+    print_node_expr(c, v)
+    c.print(")")
+  }
+  if k == 8 {
+    c.print("(-")
+    print_node_expr(c, u)
+    c.print(")")
+  }
+  if k == 9 {
+    c.print("exp(")
+    print_node_expr(c, u)
+    c.print(")")
+  }
+  if k == 10 {
+    c.print("ln(")
+    print_node_expr(c, u)
+    c.print(")")
+  }
+  if k == 11 {
+    c.print("sin(")
+    print_node_expr(c, u)
+    c.print(")")
+  }
+  if k == 12 {
+    c.print("cos(")
+    print_node_expr(c, u)
+    c.print(")")
+  }
+}
+
+fn main(c: Console) -> Unit {
+  init_cas()
+  let x = mk_var(0)
+  let x3 = mk_pow(x, mk_const(3))
+  let sin_x = mk_sin(x)
+  let two_x = mk_mul(mk_const(2), x)
+  let expr1 = mk_add(mk_add(x3, sin_x), two_x)
+  let d1 = diff(expr1, 0)
+
+  c.print("expr: ")
+  print_node_expr(c, expr1)
+  c.print("\n")
+  c.print("diff: ")
+  print_node_expr(c, d1)
+  c.print("\n")
+  c.print("nodes: ")
+  c.print_int(get_node_count())
+  c.print("\n")
+}
