@@ -27,9 +27,9 @@ import { compileToIRResidentSync, stopResidentSyncBridge } from '../native/resid
 import { createInterpreter, CODE_BASE as INTERP_CODE_BASE } from '../native/ir_interpreter.mjs';
 import { findReadCapabilityCalls, findUnknownTopLevelDiags } from './diagnostics.mjs';
 
-export const COMPILER_MODULES = ['lumenc_core', 'lumenc_emit', 'cas_core'];
+export const COMPILER_MODULES = ['lumenc_core', 'lumenc_emit', 'cas_core', 'quant'];
 export function isCompilerModule(name) {
-  return name === 'lumenc_core' || name === 'lumenc_emit' || name === 'cas_core' || name === 'math_elem';
+  return name === 'lumenc_core' || name === 'lumenc_emit' || name === 'cas_core' || name === 'math_elem' || name === 'quant';
 }
 
 // Once the resident bridge fails for any reason, stop retrying it for the rest of this process
@@ -158,6 +158,14 @@ export async function createCompiler() {
         const casCoreSrc = fs.readFileSync(casCorePath, 'utf8');
         const stripped = prepSource.replace(/(import|module)\s+cas_core[^\n]*/g, m => ' '.repeat(m.length));
         prepSource = casCoreSrc + '\n' + stripped;
+      }
+    }
+    if (source.includes('import quant') || source.includes('module quant')) {
+      const quantPath = new URL('./quant.lm', import.meta.url);
+      if (fs.existsSync(quantPath)) {
+        const quantSrc = fs.readFileSync(quantPath, 'utf8');
+        const stripped = prepSource.replace(/(import|module)\s+quant[^\n]*/g, m => ' '.repeat(m.length));
+        prepSource = quantSrc + '\n' + stripped;
       }
     }
     if (prepSource.includes('import lumenc_') || prepSource.includes('module lumenc_')) {

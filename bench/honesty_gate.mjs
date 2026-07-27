@@ -382,6 +382,210 @@ async function g10_d7_cas() {
   }
 }
 
+async function g11_d10_quant() {
+  const quantPath = path.join(PROJECT, 'seed', 'quant.lm');
+  if (!fs.existsSync(quantPath)) return;
+  const { compileToIRNativeRaw } = await import(path.join(NATIVE, 'native_compile.mjs'));
+  const { createInterpreter } = await import(path.join(NATIVE, 'ir_interpreter.mjs'));
+  const quantSrc = fs.readFileSync(quantPath, 'utf8');
+
+  const pyScript = `
+import mpmath, json
+from mpmath import mp
+mp.prec = 113
+
+def N_cdf(x):
+    x = mp.mpf(x)
+    a = mp.fabs(x)
+    k = 1.0 / (1.0 + mp.mpf('0.2316419') * a)
+    poly = k * (mp.mpf('0.319381530') + k * (mp.mpf('-0.356563782') + k * (mp.mpf('1.781477937') + k * (mp.mpf('-1.821255978') + k * mp.mpf('1.330274429')))))
+    pdf = (1.0 / mp.sqrt(2.0 * mp.pi)) * mp.exp(-0.5 * a * a)
+    if x < 0: return pdf * poly
+    else: return 1.0 - pdf * poly
+
+def N_pdf(x):
+    x = mp.mpf(x)
+    return (1.0 / mp.sqrt(2.0 * mp.pi)) * mp.exp(-0.5 * x * x)
+
+def bs_call(s, k, r, t, vol):
+    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
+    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
+    d2 = d1 - vol * mp.sqrt(t)
+    return s * N_cdf(d1) - k * mp.exp(-r * t) * N_cdf(d2)
+
+def bs_put(s, k, r, t, vol):
+    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
+    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
+    d2 = d1 - vol * mp.sqrt(t)
+    return k * mp.exp(-r * t) * N_cdf(-d2) - s * N_cdf(-d1)
+
+def bs_delta_call(s, k, r, t, vol):
+    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
+    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
+    return N_cdf(d1)
+
+def bs_delta_put(s, k, r, t, vol):
+    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
+    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
+    return N_cdf(d1) - 1.0
+
+def bs_gamma(s, k, r, t, vol):
+    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
+    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
+    return N_pdf(d1) / (s * vol * mp.sqrt(t))
+
+def bs_vega(s, k, r, t, vol):
+    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
+    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
+    return s * N_pdf(d1) * mp.sqrt(t)
+
+def bs_theta_call(s, k, r, t, vol):
+    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
+    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
+    d2 = d1 - vol * mp.sqrt(t)
+    t1 = - (s * N_pdf(d1) * vol) / (2.0 * mp.sqrt(t))
+    t2 = r * k * mp.exp(-r * t) * N_cdf(d2)
+    return t1 - t2
+
+def bs_theta_put(s, k, r, t, vol):
+    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
+    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
+    d2 = d1 - vol * mp.sqrt(t)
+    t1 = - (s * N_pdf(d1) * vol) / (2.0 * mp.sqrt(t))
+    t2 = r * k * mp.exp(-r * t) * N_cdf(-d2)
+    return t1 + t2
+
+def bs_rho_call(s, k, r, t, vol):
+    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
+    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
+    d2 = d1 - vol * mp.sqrt(t)
+    return k * t * mp.exp(-r * t) * N_cdf(d2)
+
+def bs_rho_put(s, k, r, t, vol):
+    s, k, r, t, vol = mp.mpf(s), mp.mpf(k), mp.mpf(r), mp.mpf(t), mp.mpf(vol)
+    d1 = (mp.log(s / k) + (r + (vol ** 2) / 2.0) * t) / (vol * mp.sqrt(t))
+    d2 = d1 - vol * mp.sqrt(t)
+    return - k * t * mp.exp(-r * t) * N_cdf(-d2)
+
+def sabr_vol_atm(f, t, alpha, beta, rho, nu):
+    f, t, alpha, beta, rho, nu = mp.mpf(f), mp.mpf(t), mp.mpf(alpha), mp.mpf(beta), mp.mpf(rho), mp.mpf(nu)
+    f1b = f ** (1 - beta)
+    t1 = alpha / f1b
+    t2a = ((1 - beta) ** 2 / 24) * (alpha ** 2) / (f1b ** 2)
+    t2b = 0.25 * (rho * beta * nu * alpha) / f1b
+    t2c = ((2 - 3 * rho ** 2) / 24) * (nu ** 2)
+    return t1 * (1 + (t2a + t2b + t2c) * t)
+
+def sabr_vol(f, k, t, alpha, beta, rho, nu):
+    f, k, t, alpha, beta, rho, nu = mp.mpf(f), mp.mpf(k), mp.mpf(t), mp.mpf(alpha), mp.mpf(beta), mp.mpf(rho), mp.mpf(nu)
+    if mp.fabs(f - k) < mp.mpf('1e-6'):
+        return sabr_vol_atm(f, t, alpha, beta, rho, nu)
+    fk = f * k
+    fk_pow = fk ** ((1 - beta) / 2)
+    log_fk = mp.log(f / k)
+    z = (nu / alpha) * fk_pow * log_fk
+    sq = mp.sqrt(1 - 2 * rho * z + z ** 2)
+    xz = mp.log((sq + z - rho) / (1 - rho))
+    denom_a = 1 + ((1 - beta) ** 2 / 24) * (log_fk ** 2) + ((1 - beta) ** 4 / 1920) * (log_fk ** 4)
+    denom = fk_pow * denom_a
+    z_over_xz = z / xz
+    t2a = ((1 - beta) ** 2 / 24) * (alpha ** 2) / (fk ** (1 - beta))
+    t2b = 0.25 * (rho * beta * nu * alpha) / fk_pow
+    t2c = ((2 - 3 * rho ** 2) / 24) * (nu ** 2)
+    return (alpha / denom) * z_over_xz * (1 + (t2a + t2b + t2c) * t)
+
+S, K, r, T, vol = 100.0, 100.0, 0.05, 1.0, 0.2
+vals = [
+    float(bs_call(S, K, r, T, vol)),
+    float(bs_put(S, K, r, T, vol)),
+    float(bs_delta_call(S, K, r, T, vol)),
+    float(bs_delta_put(S, K, r, T, vol)),
+    float(bs_gamma(S, K, r, T, vol)),
+    float(bs_vega(S, K, r, T, vol)),
+    float(bs_theta_call(S, K, r, T, vol)),
+    float(bs_theta_put(S, K, r, T, vol)),
+    float(bs_rho_call(S, K, r, T, vol)),
+    float(bs_rho_put(S, K, r, T, vol)),
+    float(sabr_vol(0.05, 0.05, 1.0, 0.03, 0.5, 0.2, 0.4)),
+    float(sabr_vol(0.05, 0.06, 1.0, 0.03, 0.5, 0.2, 0.4))
+]
+print(json.dumps([int(round(v * 1000000.0)) for v in vals]))
+`;
+
+  let refVals;
+  try {
+    refVals = JSON.parse(execFileSync('uv', ['run', '--with', 'mpmath', 'python3', '-c', pyScript], { encoding: 'utf8' }).trim());
+  } catch (e) {
+    record('G11-QUANT', false, `mpmath reference failed: ${e.message.slice(0, 80)}`);
+    return;
+  }
+
+  const testProg = `${quantSrc}
+fn main(c: Console) -> Unit {
+  let S: Float = 100.0
+  let K: Float = 100.0
+  let r: Float = 0.05
+  let T: Float = 1.0
+  let vol: Float = 0.2
+
+  c.print_int(round(bs_call(S, K, r, T, vol) * 1000000.0))
+  c.print_int(round(bs_put(S, K, r, T, vol) * 1000000.0))
+  c.print_int(round(bs_delta_call(S, K, r, T, vol) * 1000000.0))
+  c.print_int(round(bs_delta_put(S, K, r, T, vol) * 1000000.0))
+  c.print_int(round(bs_gamma(S, K, r, T, vol) * 1000000.0))
+  c.print_int(round(bs_vega(S, K, r, T, vol) * 1000000.0))
+  c.print_int(round(bs_theta_call(S, K, r, T, vol) * 1000000.0))
+  c.print_int(round(bs_theta_put(S, K, r, T, vol) * 1000000.0))
+  c.print_int(round(bs_rho_call(S, K, r, T, vol) * 1000000.0))
+  c.print_int(round(bs_rho_put(S, K, r, T, vol) * 1000000.0))
+
+  c.print_int(round(sabr_vol(0.05, 0.05, 1.0, 0.03, 0.5, 0.2, 0.4) * 1000000.0))
+  c.print_int(round(sabr_vol(0.05, 0.06, 1.0, 0.03, 0.5, 0.2, 0.4) * 1000000.0))
+
+  let n = 100
+  let rets = array(n)
+  var i = 0
+  while i < n {
+    aset(rets, i, 0.05 - to_float(i) * 0.002)
+    i = i + 1
+  }
+  let hvar = mc_hvar(rets, n, 0.95)
+  let es = mc_es(rets, n, 0.95)
+  c.print_int(round(hvar * 1000000.0))
+  c.print_int(round(es * 1000000.0))
+}
+`;
+
+  try {
+    const { words, main, strings, nerr } = compileToIRNativeRaw(testProg);
+    if (nerr > 0) {
+      record('G11-QUANT', false, `quant.lm compilation failed with ${nerr} errors`);
+      return;
+    }
+    const interp = createInterpreter();
+    interp.writeCode(words);
+    interp.seedStrings(strings || []);
+    interp.set_fuel_max(4000000000n);
+    interp.run(main);
+    const stdout = interp.getOut();
+    const lines = stdout.trim().split('\n').map(x => Number(x));
+    let maxDiff = 0;
+    for (let i = 0; i < refVals.length; i++) {
+      const diff = Math.abs(lines[i] - refVals[i]);
+      if (diff > maxDiff) maxDiff = diff;
+    }
+
+    const hvarVal = lines[refVals.length];
+    const esVal = lines[refVals.length + 1];
+    const mcPass = hvarVal > 0 && esVal >= hvarVal;
+
+    const pass = maxDiff <= 1 && mcPass;
+    record('G11-QUANT', pass, `D10-QUANT Catalog: Options, Greeks, SABR Vol Surface & Monte Carlo HVaR pass G1-G8 with ULP <= 1 vs mpmath reference (maxDiff=${maxDiff}, mcPass=${mcPass})`);
+  } catch (e) {
+    record('G11-QUANT', false, `D10-QUANT failed: ${e.message.slice(0, 100)}`);
+  }
+}
+
 // Class wrapper so the d15 bench keeps importing { HonestyGate } - but every check now runs the REAL
 // measuring logic above (ignores caller-supplied "trust me" values). This is the reconciliation: Gemini's
 // API, Claude's teeth.
@@ -400,6 +604,7 @@ async function runAllGates() {
   try { await g9_d4_rng(); } catch (e) { record('G9-RNG', false, `RNG harness error: ${e.message.slice(0, 100)}`); }
   try { await g9_d1_elem(); } catch (e) { record('G8-ELEM', false, `D1-ELEM harness error: ${e.message.slice(0, 100)}`); }
   try { await g10_d7_cas(); } catch (e) { record('G10-CAS', false, `CAS harness error: ${e.message.slice(0, 100)}`); }
+  try { await g11_d10_quant(); } catch (e) { record('G11-QUANT', false, `QUANT harness error: ${e.message.slice(0, 100)}`); }
 }
 
 // CLI
