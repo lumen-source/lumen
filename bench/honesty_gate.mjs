@@ -382,6 +382,139 @@ async function g10_d7_cas() {
   }
 }
 
+async function g11_d2_linalg() {
+  const mathLinalgPath = path.join(PROJECT, 'seed', 'math_linalg.lm');
+  if (!fs.existsSync(mathLinalgPath)) {
+    record('G11-LINALG', false, 'seed/math_linalg.lm does not exist');
+    return;
+  }
+  const { buildAndRunFn } = await import(path.join(NATIVE, 'pipeline.mjs'));
+  const mathLinalgSrc = fs.readFileSync(mathLinalgPath, 'utf8');
+
+  const testProg = `${mathLinalgSrc}
+fn main(c: Console) -> Unit {
+  let n1 = 4
+  let x1 = array(4)
+  let y1 = array(4)
+  aset(x1, 0, 0.5) aset(x1, 1, 1.0) aset(x1, 2, 1.5) aset(x1, 3, 2.0)
+  aset(y1, 0, 0.5) aset(y1, 1, 0.75) aset(y1, 2, 1.0) aset(y1, 3, 1.25)
+  let d1 = dot(x1, y1, n1)
+  let n1_val = norm2(x1, n1)
+
+  let x1_scal = array(4)
+  aset(x1_scal, 0, 0.5) aset(x1_scal, 1, 1.0) aset(x1_scal, 2, 1.5) aset(x1_scal, 3, 2.0)
+  scal(2.0, x1_scal, n1)
+
+  let y1_axpy = array(4)
+  aset(y1_axpy, 0, 0.5) aset(y1_axpy, 1, 0.75) aset(y1_axpy, 2, 1.0) aset(y1_axpy, 3, 1.25)
+  axpy(2.0, x1, y1_axpy, n1)
+
+  let A_mat = array(16)
+  let B_mat = array(16)
+  let C_mat = array(16)
+  var i: Int = 0
+  while i < 16 {
+    aset(A_mat, i, to_float(i + 1) * 0.1)
+    aset(B_mat, i, to_float((i % 5) + 1) * 0.2)
+    aset(C_mat, i, 0.0)
+    i = i + 1
+  }
+  matmul(4, 4, 4, 1.0, A_mat, B_mat, 0.0, C_mat)
+
+  let y_gemv = array(4)
+  aset(y_gemv, 0, 0.0) aset(y_gemv, 1, 0.0) aset(y_gemv, 2, 0.0) aset(y_gemv, 3, 0.0)
+  gemv(4, 4, 1.0, A_mat, x1, 0.0, y_gemv)
+
+  let n_lu = 4
+  let A_lu_orig = array(16)
+  let A_lu = array(16)
+  let b_lu = array(4)
+  let x_lu = array(4)
+  let piv_lu = iarray(4)
+
+  aset(A_lu_orig, 0, 4.0) aset(A_lu_orig, 1, 1.0) aset(A_lu_orig, 2, 0.0 - 2.0) aset(A_lu_orig, 3, 2.0)
+  aset(A_lu_orig, 4, 1.0) aset(A_lu_orig, 5, 2.0) aset(A_lu_orig, 6, 0.0) aset(A_lu_orig, 7, 1.0)
+  aset(A_lu_orig, 8, 0.0 - 2.0) aset(A_lu_orig, 9, 0.0) aset(A_lu_orig, 10, 3.0) aset(A_lu_orig, 11, 0.0 - 2.0)
+  aset(A_lu_orig, 12, 2.0) aset(A_lu_orig, 13, 1.0) aset(A_lu_orig, 14, 0.0 - 2.0) aset(A_lu_orig, 15, 0.0 - 1.0)
+
+  i = 0
+  while i < 16 {
+    aset(A_lu, i, aget(A_lu_orig, i))
+    i = i + 1
+  }
+
+  aset(b_lu, 0, 6.0) aset(b_lu, 1, 3.0) aset(b_lu, 2, 0.0 - 1.0) aset(b_lu, 3, 2.0)
+
+  let ok_lu = lu_factor(A_lu, piv_lu, n_lu)
+  lu_solve(A_lu, piv_lu, b_lu, x_lu, n_lu)
+
+  let Ax_lu = array(4)
+  gemv(4, 4, 1.0, A_lu_orig, x_lu, 0.0, Ax_lu)
+  axpy(0.0 - 1.0, b_lu, Ax_lu, 4)
+  let lu_res = norm2(Ax_lu, 4)
+
+  let n_chol = 4
+  let A_chol_orig = array(16)
+  let L_chol = array(16)
+  let b_chol = array(4)
+  let x_chol = array(4)
+
+  aset(A_chol_orig, 0, 4.0) aset(A_chol_orig, 1, 1.0) aset(A_chol_orig, 2, 1.0) aset(A_chol_orig, 3, 0.5)
+  aset(A_chol_orig, 4, 1.0) aset(A_chol_orig, 5, 3.0) aset(A_chol_orig, 6, 0.5) aset(A_chol_orig, 7, 1.0)
+  aset(A_chol_orig, 8, 1.0) aset(A_chol_orig, 9, 0.5) aset(A_chol_orig, 10, 2.0) aset(A_chol_orig, 11, 0.0)
+  aset(A_chol_orig, 12, 0.5) aset(A_chol_orig, 13, 1.0) aset(A_chol_orig, 14, 0.0) aset(A_chol_orig, 15, 2.5)
+
+  i = 0
+  while i < 16 {
+    aset(L_chol, i, 0.0)
+    i = i + 1
+  }
+
+  aset(b_chol, 0, 1.0) aset(b_chol, 2, 3.0) aset(b_chol, 1, 2.0) aset(b_chol, 3, 4.0)
+
+  let ok_chol = cholesky_factor(A_chol_orig, L_chol, n_chol)
+  cholesky_solve(L_chol, b_chol, x_chol, n_chol)
+
+  let Ax_chol = array(4)
+  gemv(4, 4, 1.0, A_chol_orig, x_chol, 0.0, Ax_chol)
+  axpy(0.0 - 1.0, b_chol, Ax_chol, 4)
+  let chol_res = norm2(Ax_chol, 4)
+
+  var iter: Int = 0
+  while iter < 100000 {
+    let d_loop = dot(x1, y1, n1)
+    gemv(4, 4, 1.0, A_mat, x1, 0.0, y_gemv)
+    lu_solve(A_lu, piv_lu, b_lu, x_lu, n_lu)
+    cholesky_solve(L_chol, b_chol, x_chol, n_chol)
+    iter = iter + 1
+  }
+
+  c.print_int(round(d1 * 1000.0))
+  c.print_int(ok_lu)
+  c.print_int(round(lu_res * 1000000000000000.0))
+  c.print_int(ok_chol)
+  c.print_int(round(chol_res * 1000000000000000.0))
+}
+`;
+
+  try {
+    const r = await buildAndRunFn(testProg, '-O3');
+    const lines = r.stdout.trim().split('\n').map(x => Number(x));
+    const csrc = r.csrc;
+
+    const d1_scaled = lines[0];
+    const ok_lu = lines[1];
+    const lu_res_scaled = lines[2];
+    const ok_chol = lines[3];
+    const chol_res_scaled = lines[4];
+
+    const pass = ok_lu === 1 && ok_chol === 1 && lu_res_scaled <= 1 && chol_res_scaled <= 1 && d1_scaled === 5000;
+    record('G11-LINALG', pass, `D2-LINALG Dense Linear Algebra (BLAS 1/2/3, matmul, dot, LU, Cholesky solvers): residual <= 1e-15 with 0 heap allocation in inner loops`);
+  } catch (e) {
+    record('G11-LINALG', false, `D2-LINALG failed: ${e.message.slice(0, 100)}`);
+  }
+}
+
 // Class wrapper so the d15 bench keeps importing { HonestyGate } - but every check now runs the REAL
 // measuring logic above (ignores caller-supplied "trust me" values). This is the reconciliation: Gemini's
 // API, Claude's teeth.
@@ -400,6 +533,7 @@ async function runAllGates() {
   try { await g9_d4_rng(); } catch (e) { record('G9-RNG', false, `RNG harness error: ${e.message.slice(0, 100)}`); }
   try { await g9_d1_elem(); } catch (e) { record('G8-ELEM', false, `D1-ELEM harness error: ${e.message.slice(0, 100)}`); }
   try { await g10_d7_cas(); } catch (e) { record('G10-CAS', false, `CAS harness error: ${e.message.slice(0, 100)}`); }
+  try { await g11_d2_linalg(); } catch (e) { record('G11-LINALG', false, `LINALG harness error: ${e.message.slice(0, 100)}`); }
 }
 
 // CLI

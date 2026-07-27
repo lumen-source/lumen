@@ -1,0 +1,212 @@
+# seed/math_linalg.lm - D2-LINALG Dense Linear Algebra: BLAS 1/2/3, Matrix Multiply & Solvers (matmul, dot, LU, Cholesky)
+
+fn dot(x: array, y: array, n: Int) -> Float {
+  var s: Float = 0.0
+  var i: Int = 0
+  while i < n {
+    s = s + aget(x, i) * aget(y, i)
+    i = i + 1
+  }
+  return s
+}
+
+fn norm2(x: array, n: Int) -> Float {
+  var s: Float = 0.0
+  var i: Int = 0
+  while i < n {
+    let v = aget(x, i)
+    s = s + v * v
+    i = i + 1
+  }
+  return sqrt(s)
+}
+
+fn scal(alpha: Float, x: array, n: Int) -> Unit {
+  var i: Int = 0
+  while i < n {
+    aset(x, i, alpha * aget(x, i))
+    i = i + 1
+  }
+}
+
+fn axpy(alpha: Float, x: array, y: array, n: Int) -> Unit {
+  var i: Int = 0
+  while i < n {
+    aset(y, i, aget(y, i) + alpha * aget(x, i))
+    i = i + 1
+  }
+}
+
+fn gemv(m: Int, n: Int, alpha: Float, A: array, x: array, beta: Float, y: array) -> Unit {
+  var i: Int = 0
+  while i < m {
+    var s: Float = 0.0
+    var j: Int = 0
+    while j < n {
+      s = s + aget(A, i * n + j) * aget(x, j)
+      j = j + 1
+    }
+    aset(y, i, alpha * s + beta * aget(y, i))
+    i = i + 1
+  }
+}
+
+fn matmul(m: Int, k: Int, n: Int, alpha: Float, A: array, B: array, beta: Float, C: array) -> Unit {
+  var i: Int = 0
+  while i < m {
+    var j: Int = 0
+    while j < n {
+      var s: Float = 0.0
+      var p: Int = 0
+      while p < k {
+        s = s + aget(A, i * k + p) * aget(B, p * n + j)
+        p = p + 1
+      }
+      let idx = i * n + j
+      aset(C, idx, alpha * s + beta * aget(C, idx))
+      j = j + 1
+    }
+    i = i + 1
+  }
+}
+
+fn lu_factor(A: array, pivot: iarray, n: Int) -> Int {
+  var i: Int = 0
+  while i < n {
+    iaset(pivot, i, i)
+    i = i + 1
+  }
+  var k: Int = 0
+  while k < n {
+    var max_val: Float = abs(aget(A, k * n + k))
+    var pivot_row: Int = k
+    var r: Int = k + 1
+    while r < n {
+      let val = abs(aget(A, r * n + k))
+      if val > max_val {
+        max_val = val
+        pivot_row = r
+      }
+      r = r + 1
+    }
+    if max_val < 0.00000000000000000001 {
+      return 0
+    }
+    if pivot_row != k {
+      let tmp_p = iaget(pivot, k)
+      iaset(pivot, k, iaget(pivot, pivot_row))
+      iaset(pivot, pivot_row, tmp_p)
+      
+      var c: Int = 0
+      while c < n {
+        let idx1 = k * n + c
+        let idx2 = pivot_row * n + c
+        let tmp = aget(A, idx1)
+        aset(A, idx1, aget(A, idx2))
+        aset(A, idx2, tmp)
+        c = c + 1
+      }
+    }
+    
+    let akk = aget(A, k * n + k)
+    var i_row: Int = k + 1
+    while i_row < n {
+      let mult = aget(A, i_row * n + k) / akk
+      aset(A, i_row * n + k, mult)
+      var j_col: Int = k + 1
+      while j_col < n {
+        let idx = i_row * n + j_col
+        aset(A, idx, aget(A, idx) - mult * aget(A, k * n + j_col))
+        j_col = j_col + 1
+      }
+      i_row = i_row + 1
+    }
+    k = k + 1
+  }
+  return 1
+}
+
+fn lu_solve(A: array, pivot: iarray, b: array, x: array, n: Int) -> Unit {
+  var i: Int = 0
+  while i < n {
+    let p_idx = iaget(pivot, i)
+    aset(x, i, aget(b, p_idx))
+    i = i + 1
+  }
+  i = 0
+  while i < n {
+    var j: Int = 0
+    while j < i {
+      aset(x, i, aget(x, i) - aget(A, i * n + j) * aget(x, j))
+      j = j + 1
+    }
+    i = i + 1
+  }
+  i = n - 1
+  while i >= 0 {
+    var j: Int = i + 1
+    while j < n {
+      aset(x, i, aget(x, i) - aget(A, i * n + j) * aget(x, j))
+      j = j + 1
+    }
+    aset(x, i, aget(x, i) / aget(A, i * n + i))
+    i = i - 1
+  }
+}
+
+fn cholesky_factor(A: array, L: array, n: Int) -> Int {
+  var i: Int = 0
+  while i < n {
+    var j: Int = 0
+    while j <= i {
+      var s: Float = aget(A, i * n + j)
+      var k: Int = 0
+      while k < j {
+        s = s - aget(L, i * n + k) * aget(L, j * n + k)
+        k = k + 1
+      }
+      if i == j {
+        if s <= 0.0 {
+          return 0
+        }
+        aset(L, i * n + j, sqrt(s))
+      } else {
+        let ljj = aget(L, j * n + j)
+        if ljj == 0.0 {
+          return 0
+        }
+        aset(L, i * n + j, s / ljj)
+      }
+      j = j + 1
+    }
+    i = i + 1
+  }
+  return 1
+}
+
+fn cholesky_solve(L: array, b: array, x: array, n: Int) -> Unit {
+  var i: Int = 0
+  while i < n {
+    var s: Float = aget(b, i)
+    var j: Int = 0
+    while j < i {
+      s = s - aget(L, i * n + j) * aget(x, j)
+      j = j + 1
+    }
+    let lii = aget(L, i * n + i)
+    aset(x, i, s / lii)
+    i = i + 1
+  }
+  i = n - 1
+  while i >= 0 {
+    var s: Float = aget(x, i)
+    var j: Int = i + 1
+    while j < n {
+      s = s - aget(L, j * n + i) * aget(x, j)
+      j = j + 1
+    }
+    let lii = aget(L, i * n + i)
+    aset(x, i, s / lii)
+    i = i - 1
+  }
+}
