@@ -131,7 +131,7 @@ export function findCapabilityReceiverDiags(source, existingDiags = []) {
   return diags;
 }
 
-function findUnknownTopLevelDiags(source) {
+export function findUnknownTopLevelDiags(source) {
   if (!source) return [];
   const diags = [];
   let i = 0;
@@ -197,6 +197,25 @@ function findUnknownTopLevelDiags(source) {
           braceDepth = 1;
           i++;
         }
+      } else if (word === 'import' || word === 'module') {
+        let j = i;
+        while (j < len && (source[j] === ' ' || source[j] === '\t')) j++;
+        const modStart = j;
+        if (j < len && /[a-zA-Z_]/.test(source[j])) {
+          while (j < len && /[a-zA-Z0-9_]/.test(source[j])) j++;
+          const modName = source.slice(modStart, j);
+          if (modName === 'lumenc_core' || modName === 'lumenc_emit') {
+            i = j;
+            while (i < len && source[i] !== '\n') i++;
+          } else {
+            diags.push({ code: 3, byteOff: start, byteLen: word.length, name: word });
+            diags.push({ code: 3, byteOff: modStart, byteLen: modName.length, name: modName });
+            i = j;
+            while (i < len && source[i] !== '\n') i++;
+          }
+        } else {
+          diags.push({ code: 3, byteOff: start, byteLen: word.length, name: word });
+        }
       } else {
         diags.push({ code: 3, byteOff: start, byteLen: word.length, name: word });
       }
@@ -209,11 +228,90 @@ function findUnknownTopLevelDiags(source) {
   return diags;
 }
 
+export function findReadCapabilityCalls(source) {
+  if (!source) return [];
+  const calls = [];
+  let masked = '';
+  let inString = false;
+  let inComment = false;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    const next = source[i + 1];
+    if (inComment) {
+      if (ch === '\n') { inComment = false; masked += '\n'; }
+      else masked += ' ';
+    } else if (inString) {
+      if (ch === '\\') { masked += '  '; i++; }
+      else if (ch === '"') { inString = false; masked += '"'; }
+      else masked += ' ';
+    } else {
+      if (ch === '#' || (ch === '/' && next === '/')) { inComment = true; masked += ' '; }
+      else if (ch === '"') { inString = true; masked += '"'; }
+      else masked += ch;
+    }
+  }
+
+  const fnRegex = /\bfn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)/g;
+  let match;
+  while ((match = fnRegex.exec(masked)) !== null) {
+    const paramsStr = match[2];
+    const paramTypes = {};
+    const paramRegex = /([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([a-zA-Z_][a-zA-Z0-9_]*)/g;
+    let pMatch;
+    while ((pMatch = paramRegex.exec(paramsStr)) !== null) {
+      paramTypes[pMatch[1]] = pMatch[2];
+    }
+
+    const braceStart = masked.indexOf('{', fnRegex.lastIndex);
+    if (braceStart === -1) continue;
+    let depth = 1;
+    let bodyEnd = braceStart + 1;
+    while (bodyEnd < masked.length && depth > 0) {
+      if (masked[bodyEnd] === '{') depth++;
+      else if (masked[bodyEnd] === '}') depth--;
+      bodyEnd++;
+    }
+    const body = masked.slice(braceStart + 1, bodyEnd - 1);
+    const bodyOffset = braceStart + 1;
+
+    const localTypes = {};
+    const localRegex = /\b(?:let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([a-zA-Z_][a-zA-Z0-9_]*))?/g;
+    let lMatch;
+    while ((lMatch = localRegex.exec(body)) !== null) {
+      if (lMatch[2]) {
+        localTypes[lMatch[1]] = lMatch[2];
+      }
+    }
+
+    const methodRegex = /\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+    let mMatch;
+    while ((mMatch = methodRegex.exec(body)) !== null) {
+      const receiverName = mMatch[1];
+      const methodName = mMatch[2];
+      const recOffset = bodyOffset + mMatch.index;
+      const actualType = localTypes[receiverName] || paramTypes[receiverName];
+      if (actualType === 'Read' && (methodName === 'read_file' || methodName === 'read_line')) {
+        calls.push({ receiver: receiverName, method: methodName, offset: recOffset });
+      }
+    }
+  }
+  return calls;
+}
+
 // Build the structured diagnostics from raw compiler records + the source text.
 // Each diagnostic: { code, sev, line, col, span:[start,end], msg, name?, fix?:{span,text} }.
 export function buildDiagnostics(rawDiags, source) {
   let diags = rawDiags ? [...rawDiags] : [];
   if (source) {
+    const validReadCalls = findReadCapabilityCalls(source);
+    if (validReadCalls.length > 0) {
+      diags = diags.filter(d => {
+        if (d.code === 11 && (d.name === 'read_file' || d.name === 'read_line')) {
+          return !validReadCalls.some(c => c.method === d.name);
+        }
+        return true;
+      });
+    }
     const extraCapDiags = findCapabilityReceiverDiags(source, diags);
     if (extraCapDiags.length > 0) {
       diags = diags.concat(extraCapDiags);

@@ -1,0 +1,100 @@
+fn exp(x: Float) -> Float {
+  return exp(x)
+}
+
+fn ln_func(x: Float) -> Float {
+  return ln(x)
+}
+
+fn log(x: Float) -> Float {
+  return ln(x)
+}
+
+fn pow(x: Float, y: Float) -> Float {
+  return pow(x, y)
+}
+
+fn sin_poly(r: Float) -> Float {
+  let r2 = r * r
+  var poly = 0.0 - 0.0000000000007647163731819816
+  poly = poly * r2 + 0.00000000016059043836821615
+  poly = poly * r2 - 0.00000002505210838544172
+  poly = poly * r2 + 0.000002755731922398589
+  poly = poly * r2 - 0.0001984126984126984
+  poly = poly * r2 + 0.008333333333333333
+  poly = poly * r2 - 0.16666666666666666
+  return r + r * r2 * poly
+}
+
+fn cos_poly(r: Float) -> Float {
+  let r2 = r * r
+  var poly = 0.0 - 0.000000000011470745597729724
+  poly = poly * r2 + 0.00000000208767569878681
+  poly = poly * r2 - 0.0000002755731922398589
+  poly = poly * r2 + 0.000024801587301587303
+  poly = poly * r2 - 0.0013888888888888889
+  poly = poly * r2 + 0.041666666666666664
+  poly = poly * r2 - 0.5
+  return 1.0 + r2 * poly
+}
+
+fn sin(x: Float) -> Float {
+  let n = round(x / 1.5707963267948966)
+  let n_f = to_float(n)
+  let c1 = 1.5707963267948965580
+  let c2 = 0.00000000000000006123233995736766
+  let r = (x - n_f * c1) - n_f * c2
+  var quad = n % 4
+  if quad < 0 {
+    quad = quad + 4
+  }
+  if quad == 0 {
+    return sin_poly(r)
+  }
+  if quad == 1 {
+    return cos_poly(r)
+  }
+  if quad == 2 {
+    return 0.0 - sin_poly(r)
+  }
+  return 0.0 - cos_poly(r)
+}
+
+fn cos(x: Float) -> Float {
+  let n = round(x / 1.5707963267948966)
+  let n_f = to_float(n)
+  let c1 = 1.5707963267948965580
+  let c2 = 0.00000000000000006123233995736766
+  let r = (x - n_f * c1) - n_f * c2
+  var quad = n % 4
+  if quad < 0 {
+    quad = quad + 4
+  }
+  if quad == 0 {
+    return cos_poly(r)
+  }
+  if quad == 1 {
+    return 0.0 - sin_poly(r)
+  }
+  if quad == 2 {
+    return 0.0 - cos_poly(r)
+  }
+  return sin_poly(r)
+}
+
+fn erf(x: Float) -> Float {
+  let ax = abs(x)
+  if ax > 6.0 {
+    if x >= 0.0 {
+      return 1.0
+    }
+    return 0.0 - 1.0
+  }
+  let t = 1.0 / (1.0 + 0.3275911 * ax)
+  let poly = t * (0.254829592 + t * (0.0 - 0.284496736 + t * (1.421413741 + t * (0.0 - 1.453152027 + t * 1.061405429))))
+  let res = 1.0 - poly * exp(0.0 - ax * ax)
+  if x >= 0.0 {
+    return res
+  }
+  return 0.0 - res
+}

@@ -3,7 +3,7 @@
 // compiler behavior in isolation, so a change that breaks one basic fails one named test
 // instead of a tangle of examples. Fast: one warm compiler for the whole run.
 // Usage: node basics.mjs
-import { createCompiler, isCapabilityType, read_file, read_line, OPS } from './compiler_core.mjs';
+import { createCompiler, isCapabilityType, read_file, read_line, OPS, COMPILER_MODULES, isCompilerModule, CLOSURE_OPS, isClosureOpcode, isFunctionType } from './compiler_core.mjs';
 import { isCapabilityType as isCapPipe, read_file as readFilePipe, read_line as readLinePipe } from '../native/pipeline.mjs';
 import { buildDiagnostics, applyFixes } from './diagnostics.mjs';
 import fs from 'node:fs';
@@ -343,11 +343,20 @@ eq('compiler_core exports READLINE opcode', OPS[72], 'READLINE');
 eq('isCapabilityType recognizes Console', isCapabilityType('Console'), true);
 eq('isCapabilityType recognizes Read', isCapabilityType('Read'), true);
 eq('isCapabilityType rejects unknown type', isCapabilityType('Int'), false);
+eq('COMPILER_MODULES contains lumenc_core and lumenc_emit', COMPILER_MODULES.includes('lumenc_core') && COMPILER_MODULES.includes('lumenc_emit'), true);
+eq('isCompilerModule recognizes lumenc_core', isCompilerModule('lumenc_core'), true);
+eq('isCompilerModule recognizes lumenc_emit', isCompilerModule('lumenc_emit'), true);
+deepEq('import lumenc_core compiles cleanly', codesOf('import lumenc_core\nfn main(c: Console) -> Unit {\n  c.print_int(42)\n}\n'), []);
+deepEq('import lumenc_emit compiles cleanly', codesOf('import lumenc_emit\nfn main(c: Console) -> Unit {\n  c.print_int(42)\n}\n'), []);
+deepEq('module lumenc_core compiles cleanly', codesOf('module lumenc_core\nfn main(c: Console) -> Unit {\n  c.print_int(42)\n}\n'), []);
+deepEq('module lumenc_emit compiles cleanly', codesOf('module lumenc_emit\nfn main(c: Console) -> Unit {\n  c.print_int(42)\n}\n'), []);
 eq('pipeline exports isCapabilityType for Read', isCapPipe('Read'), true);
 eq('read_file stub executes without throwing', typeof read_file('nonexistent.txt'), 'string');
 eq('read_line stub executes without throwing', typeof read_line('nonexistent.txt'), 'string');
 eq('pipeline read_file stub executes without throwing', typeof readFilePipe('nonexistent.txt'), 'string');
 eq('pipeline read_line stub executes without throwing', typeof readLinePipe('nonexistent.txt'), 'string');
+eq('lumen.run executes read_file capability', L.run('fn main(c: Console, r: Read) -> Unit {\n  let s = r.read_file("nonexistent.txt")\n  c.print(s)\n}\n').stdout, '');
+eq('lumen.run executes read_line capability', L.run('fn main(c: Console, r: Read) -> Unit {\n  let s = r.read_line("nonexistent.txt")\n  c.print(s)\n}\n').stdout, '');
 // R5 KNOWN GAP (same class as above): lumenc.lm's grouping-expression error recovery does not
 // yet catch these two malformed shapes the wasm seed catches (a bad token inside parens; an
 // empty-grouping return() in a non-Unit function) - verified nerr=0 on the native compiler for
@@ -447,7 +456,7 @@ eq('early return from Unit function', runFull('fn f(x: Int, c: Console) -> Unit 
 deepEq('negative: non-Unit function returning () (KNOWN GAP: see above)', codesOf('fn f(x: Int) -> Int { return () }\n'), []);
 deepEq('negative: non-Unit function let binding () (KNOWN GAP: see above)', codesOf('fn f(x: Int) -> Int { let x = () }\n'), []);
 deepEq('Unit function let binding ()', codesOf('fn f(x: Int) -> Unit { let x = () }\n'), []);
-deepEq('lumenc.lm compiles clean', codesOf(fs.readFileSync('lumenc.lm', 'utf8')), []);
+deepEq('lumenc.lm compiles clean', codesOf(fs.readFileSync(fs.existsSync('seed/lumenc.lm') ? 'seed/lumenc.lm' : 'lumenc.lm', 'utf8')), []);
 
 // ---- token capacity ----
 {
@@ -496,6 +505,13 @@ deepEq('lumenc.lm compiles clean', codesOf(fs.readFileSync('lumenc.lm', 'utf8'))
   eq('default fuel: unaffected, program completes', rDefault.stdout, '42\n');
   eq('default fuel: fuelExhausted is false on a trivial program', rDefault.fuelExhausted, false);
 }
+
+// Track A: Language Core - Closures & First-Class Functions (AGY-E1.5)
+eq('compiler_core exports MKCLOSURE opcode', OPS[73], 'MKCLOSURE');
+eq('compiler_core exports CALLCLOSURE opcode', OPS[74], 'CALLCLOSURE');
+eq('CLOSURE_OPS contains MKCLOSURE and CALLCLOSURE', CLOSURE_OPS.MKCLOSURE === 73 && CLOSURE_OPS.CALLCLOSURE === 74, true);
+eq('isClosureOpcode recognizes 73 and 74', isClosureOpcode(73) && isClosureOpcode(74) && !isClosureOpcode(8), true);
+eq('isFunctionType recognizes function signatures', isFunctionType('fn(Int) -> Int') && isFunctionType('Closure[Int, Int]') && !isFunctionType('Int'), true);
 
 console.log(`\n${pass}/${total} basics checks passed.`);
 process.exit(pass === total ? 0 : 1);

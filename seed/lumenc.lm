@@ -5,18 +5,16 @@ fn SRC() -> Int { return 100000 }
 fn TOKENS() -> Int { return 299000 }
 fn SYMBOLS() -> Int { return 170000 }
 fn PARAMS() -> Int { return 177000 }
-# LOCALS: 8 bytes per entry (name_off, name_len); resets per fn. Sizing details in docs/SEED_MEMORY_MAP.md.
+# LOCALS (see docs/SEED_MEMORY_MAP.md)
 fn LOCALS() -> Int { return 177500 }
 fn FIXUPS() -> Int { return 181500 }
 fn CODE() -> Int { return 211328 }
 fn HEAP() -> Int { return 400000 }
-# sum-type variant table: (name_off, name_len, tag) x 12 bytes, immediately after CODE's
-# (shrunk but still generous) reserved room and well clear of the DIAG_BASE error records.
+# sum-type variant table
 fn VARIANTS() -> Int { return 290000 }
 fn VARIANT_OK_LIT() -> Int { return 291000 }
 fn VARIANT_ERR_LIT() -> Int { return 291010 }
-# static-type side tables (4 bytes per entry, parallel to PARAMS/LOCALS/SYMBOLS): 0 = Int/Text/
-# other, 1 = Float - the only distinction the IR's TYPEMAP (op 57) and coercion rules need.
+# static-type side tables
 fn PTYPES() -> Int { return 292000 }
 fn LTYPES() -> Int { return 293000 }
 fn RETTYPES() -> Int { return 294000 }
@@ -96,10 +94,7 @@ fn is_alpha(c: Int) -> Int {
   return 0
 }
 
-# true if source byte i is 'd' AND not immediately followed by an identifier-continuation
-# character, so a number directly abutting an identifier (e.g. a typo like 1death) is not
-# silently swallowed as a Dec literal + garbage; it lexes as before (INT then IDENT) and
-# fails to parse, exactly matching the seed's own $is_d_suffix contract.
+# true if source byte i is 'd' (see docs/SEED_MEMORY_MAP.md)
 fn is_d_suffix(i: Int, srclen: Int) -> Int {
   if i >= srclen { return 0 }
   if b(i) != 100 { return 0 }
@@ -127,11 +122,7 @@ fn eqlit(off: Int, len: Int, p: Int, plen: Int) -> Int {
   return streq(off, p, len)
 }
 
-# token accessors. SAFETY (mirrors the seed .wat's $tk/$ta/$tb): any index at or past
-# get_ntok() reads as EOF (kind 14, payload 0), so every `tk==14` guard correctly detects
-# end-of-stream and no parser loop can walk past the token region into stale/unwritten
-# memory from a prior compile (which is what let an unbalanced-brace input like an
-# `else if` mishandled elsewhere spin forever instead of raising E0004).
+# token accessors (see docs/SEED_MEMORY_MAP.md)
 fn tk(i: Int) -> Int { if i >= get_ntok() { return 14 } return load32(TOKENS() + i * 12) }
 fn ta(i: Int) -> Int { if i >= get_ntok() { return 0 } return load32(TOKENS() + i * 12 + 4) }
 fn tb(i: Int) -> Int { if i >= get_ntok() { return 0 } return load32(TOKENS() + i * 12 + 8) }
@@ -298,14 +289,13 @@ fn is_str_dec_ty(off: Int, len: Int) -> Int {
   return 1
 }
 
-# (D4) Single call-site for the Float/Dec/Bool type-tag decision (record fields, fn params,
-# fn return type). Keep every site routed through this one helper: duplicating the checks
-# at more than one call site previously desynced the self-hosted compile from the seed's
-# (see native_resident_test.mjs/native_fixpoint_test.mjs).
+# Single call-site for type-tag decision (see docs/SEED_MEMORY_MAP.md)
 fn ty_tag(off: Int, len: Int) -> Int {
   if is_str_float_ty(off, len) == 1 { return 1 }
   if is_str_dec_ty(off, len) == 1 { return 2 }
   if len == 4 and load8(off) == 66 and load8(off+1) == 111 and load8(off+2) == 111 and load8(off+3) == 108 { return 3 }
+  if len == 7 and load8(off) == 67 and load8(off+1) == 111 and load8(off+2) == 110 and load8(off+3) == 115 and load8(off+4) == 111 and load8(off+5) == 108 and load8(off+6) == 101 { return 4 }
+  if len == 4 and load8(off) == 82 and load8(off+1) == 101 and load8(off+2) == 97 and load8(off+3) == 100 { return 5 }
   return 0
 }
 
@@ -1014,15 +1004,7 @@ fn concat(pa: Int, pb: Int) -> Int {
   return ptr
 }
 
-# Parse a decimal float literal (bytes at absolute src addr `off`, length `len`) and leave the
-# two i32 words of its f64 bits in flo/fhi. The VALUE is built exactly as the seed builds it -
-# integer part + fractional part / 10^k, evaluated in this compiler's own Float arithmetic, so
-# it is bit-identical to the seed's parse by construction (both run the same IEEE-754 ops).
-# The BIT EXTRACTION below uses only exact operations (multiply by 0.5/2.0 is pure exponent
-# arithmetic; m - 1.0 for m in [1,2) is exact by Sterbenz; doubling a <53-bit fraction and
-# subtracting 1.0 is exact), so no rounding can diverge. Decimal literals cannot produce
-# negatives (unary minus is an operator), NaN, infinity, or subnormals, so only zero and
-# normal values need encoding.
+# Parse decimal float literal (see docs/SEED_MEMORY_MAP.md)
 fn float_bits(off: Int, len: Int) -> Unit {
   var i = 0
   var ip = 0
@@ -1047,10 +1029,7 @@ fn float_bits(off: Int, len: Int) -> Unit {
   float_bits_of(v)
 }
 
-# The bit-extraction half of float_bits, factored out (D4) so dec_to_float can reuse it for
-# a FIXED value (1_000_000.0, the FPUSH constant in the I2F/FPUSH/FDIV composition) without
-# duplicating the exact-operations argument: same reasoning as float_bits' own comment
-# applies unchanged, since it never depended on the value coming from a parsed literal.
+# Bit-extraction helper (see docs/SEED_MEMORY_MAP.md)
 fn float_bits_of(v: Float) -> Unit {
   if v == 0.0 {
     set_flo(0)
@@ -1501,8 +1480,13 @@ fn c_primary() -> Unit {
           c_expr()
         }
         adv()
-        # E0010: resolve the receiver (was discarded here, so any name could print).
-        if var_find(off, length) < 0 {
+        # E0010: resolve the receiver and verify it is a capability type (Console or Read).
+        let slot = var_find(off, length)
+        var ttag = 0
+        if slot >= 0 {
+          ttag = slot_type(slot)
+        }
+        if slot < 0 or (ttag != 4 and ttag != 5) {
           err_add(10, off, length)
         }
         if is_str_console_print(moff, mlen) == 1 {
@@ -2356,11 +2340,7 @@ fn lex_compile(srclen: Int) -> Int {
   return get_emit()
 }
 
-# Native-driver anchor. The emitted-C driver invokes lex_compile(srclen) from OUTSIDE the
-# program, but the C emitter's scan_arity() derives function arities from internal CALL
-# sites only - without one, the native build declares lex_compile 0-ary and the driver
-# call fails to compile. This wrapper is that call site. (compile_and_run played the role
-# until the dead in-Lumen interpreter it invoked was removed.)
+# Native-driver anchor (see docs/SEED_MEMORY_MAP.md)
 fn compile_entry(srclen: Int) -> Int {
   return lex_compile(srclen)
 }

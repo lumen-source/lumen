@@ -1,3 +1,4 @@
+# Module lumenc_emit: Lumen compiler separate module for code generation and C emission.
 # Injected-IR + emit scratch live in a high block at 2MB, well ABOVE the seed VM's Text
 # heap (bump-allocated from 488000). emit_fn's `num` allocates a Text per number and never
 # frees it (no GC), so on a compiler-sized program the heap climbs past page 9 (524288); if
@@ -221,6 +222,8 @@ fn oplen_d_change(op: Int, pc: Int, d: Int) -> Int {
   if op == 68 { res = d - 1 }
   if op == 69 { res = d - 1 }
   if op == 70 { res = d }
+  if op == 71 { res = d }
+  if op == 72 { res = d }
   if res < 0 { return 0 }
   return res
 }
@@ -609,6 +612,43 @@ fn emit_op(c: Console, pc: Int, d: Int, func_pc: Int) -> Int {
     set_sty(d - 1, 0)
     return d
   }
+  if op == 71 {
+    slot_int(c, d - 1) c.print("=lm_read_file(") sl_int(c, d - 1) c.print(");\n")
+    set_sty(d - 1, 0)
+    return d
+  }
+  if op == 72 {
+    slot_int(c, d - 1) c.print("=lm_read_line(") sl_int(c, d - 1) c.print(");\n")
+    set_sty(d - 1, 0)
+    return d
+  }
+  if op == 73 {
+    let entry = ir_word(pc + 1)
+    let ncap = ir_word(pc + 2)
+    slot_int(c, d - ncap) c.print("=lm_mkclosure(") num(c, entry) c.print(",") num(c, ncap)
+    var j = 0
+    while j < ncap {
+      c.print(",")
+      sl_int(c, d - ncap + j)
+      j = j + 1
+    }
+    c.print(");\n")
+    set_sty(d - ncap, 0)
+    return d - ncap + 1
+  }
+  if op == 74 {
+    let argc = ir_word(pc + 1)
+    slot_int(c, d - argc - 1) c.print("=lm_callclosure(") sl_int(c, d - argc - 1) c.print(",") num(c, argc)
+    var j = 0
+    while j < argc {
+      c.print(",")
+      sl_int(c, d - argc + j)
+      j = j + 1
+    }
+    c.print(");\n")
+    set_sty(d - argc - 1, 0)
+    return d - argc
+  }
   c.print("\n#error unsupported ") num(c, op) c.print("\n")
   return d
 }
@@ -974,6 +1014,59 @@ static void lm_printtext(int64_t a) {
   if (!a) return;
   int32_t len = *(int32_t*)a;
   fwrite((char*)a + 4, 1, len, stdout);
+}
+static int64_t lm_read_file(int64_t path_ptr) {
+  if (!path_ptr) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  int32_t plen = *(int32_t*)path_ptr;
+  char* path = (char*)malloc(plen + 1);
+  if (!path) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  memcpy(path, (char*)path_ptr + 4, plen);
+  path[plen] = '\0';
+  char mode[3]; mode[0] = 114; mode[1] = 98; mode[2] = 0;
+  FILE* f = fopen(path, mode);
+  free(path);
+  if (!f) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (sz < 0) sz = 0;
+  int64_t ptr = lm_alloc_bytes(4 + sz);
+  *(int32_t*)ptr = (int32_t)sz;
+  if (sz > 0) {
+    size_t nread = fread((char*)ptr + 4, 1, sz, f);
+    (void)nread;
+  }
+  fclose(f);
+  return ptr;
+}
+static int64_t lm_read_line(int64_t path_ptr) {
+  if (!path_ptr) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  int32_t plen = *(int32_t*)path_ptr;
+  char* path = (char*)malloc(plen + 1);
+  if (!path) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  memcpy(path, (char*)path_ptr + 4, plen);
+  path[plen] = '\0';
+  char mode2[3]; mode2[0] = 114; mode2[1] = 98; mode2[2] = 0;
+  FILE* f = fopen(path, mode2);
+  free(path);
+  if (!f) { int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (sz < 0) sz = 0;
+  char* buf = (char*)malloc(sz + 1);
+  if (!buf) { fclose(f); int64_t ptr = lm_alloc_bytes(4); *(int32_t*)ptr = 0; return ptr; }
+  size_t nread = fread(buf, 1, sz, f);
+  fclose(f);
+  int32_t line_len = 0;
+  while (line_len < (int32_t)nread && buf[line_len] != 10 && buf[line_len] != 13) {
+    line_len++;
+  }
+  int64_t ptr = lm_alloc_bytes(4 + line_len);
+  *(int32_t*)ptr = line_len;
+  if (line_len > 0) memcpy((char*)ptr + 4, buf, line_len);
+  free(buf);
+  return ptr;
 }
 ")
   scan_arity()

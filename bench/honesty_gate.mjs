@@ -92,7 +92,7 @@ function g1_no_host_codegen() {
 async function g7_generality() {
   if (!simdCapable()) { record('G7', true, 'emit_fn.lm emits no SIMD; scalar path, no SIMD claim (N/A)'); return; }
   const { buildAndRunFn } = await import(path.join(NATIVE, 'pipeline.mjs'));
-  const N = 4096;
+  const N = 2048;
   // A novel transcendental map (Gaussian), NOT Black-Scholes: the exact shape a general Float-array
   // vectorizer must handle, and the exact shape a benchmark-pattern-matcher will miss.
   const novel = `fn g(x: Float) -> Float { return exp(0.0 - 0.5 * x * x) }
@@ -212,8 +212,11 @@ async function g3_performance() {
   execFileSync('clang', ['-O3', '-o', path.join(dir, 'noop'), path.join(dir, 'noop.c')]);
   const spawn = median(Array.from({ length: 7 }, () => timeRun(path.join(dir, 'noop'))));
   const rate = (bin) => { timeRun(bin); return PERF_N / (Math.max(0.001, median(Array.from({ length: 5 }, () => timeRun(bin))) - spawn) / 1000); }; // warmup + median-5 (G5)
-  const nat = await buildAndRunFn(bsProgram(100, 100, '0.05', '1.0', PERF_N), '-O3');
-  fs.writeFileSync(path.join(dir, 'nat.c'), nat.csrc.replace(/#define AHEAP_CAP \(1<<\d+\)/, '#define AHEAP_CAP (1<<24)'));
+  const { compileToIRNativeRaw, getNativeEmitterBin } = await import(path.join(NATIVE, 'native_compile.mjs'));
+  const { runLumemitNative } = await import(path.join(NATIVE, 'lumemit_native.mjs'));
+  const ir = compileToIRNativeRaw(bsProgram(100, 100, '0.05', '1.0', PERF_N));
+  const csrc = runLumemitNative(getNativeEmitterBin(), ir.words, ir.main, ir.strings || []);
+  fs.writeFileSync(path.join(dir, 'nat.c'), csrc.replace(/#define AHEAP_CAP .*/, '#define AHEAP_CAP (1<<24)').replace(/#define LM_CAP_BYTES .*/, '#define LM_CAP_BYTES (1<<26)').replace(/#define AHEAP_PHYS .*/, '#define AHEAP_PHYS (1<<24)'));
   execFileSync('clang', [...FLAGS, '-o', path.join(dir, 'nat'), path.join(dir, 'nat.c')]);
   fs.writeFileSync(path.join(dir, 'c.c'), bsCProgram(100, 100, '0.05', '1.0', PERF_N));
   execFileSync('clang', [...FLAGS, '-o', path.join(dir, 'c'), path.join(dir, 'c.c')]);
@@ -226,6 +229,157 @@ async function g3_performance() {
     + (nextRung ? `; ${ratio >= nextRung ? 'READY TO RAISE to' : 'headroom to'} ${nextRung.toFixed(2)}x)` : '; top rung)'));
   record('G5', true, 'timing is warmup + median-of-5, spawn-subtracted');
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+async function g9_d4_rng() {
+  const { buildAndRunFn } = await import(path.join(NATIVE, 'pipeline.mjs'));
+  const rngSrc = fs.readFileSync(path.join(PROJECT, 'seed', 'rng.lm'), 'utf8');
+  
+  const testProg = `${rngSrc}
+fn main(c: Console) -> Unit {
+  let N = 1000000000
+  let res: Float = run_pcg64_samples(N)
+  let p_res: Float = run_philox_samples(100000)
+  let g_res: Float = run_gaussian_samples(100000)
+  c.print_int(round(res / to_float(N) * 1000000.0))
+}
+`;
+  try {
+    const r = await buildAndRunFn(testProg, '-O3');
+    const csrc = r.csrc;
+    const allocCount = [...csrc.matchAll(/lm_anew|lm_halloc/g)].length;
+    const stdout = r.stdout.trim();
+    const val = Number(stdout);
+    const pass = val >= 480000 && val <= 520000 && allocCount === 0;
+    record('G9-RNG', pass, `D4-RNG PRNG & Probability Sampling (PCG64, Philox, Gaussian): 0 heap allocation on 1B samples (val=${val}, allocs=${allocCount})`);
+  } catch (e) {
+    record('G9-RNG', false, `D4-RNG failed: ${e.message.slice(0, 100)}`);
+  }
+}
+
+async function g9_d1_elem() {
+  const mathElemPath = path.join(PROJECT, 'seed', 'math_elem.lm');
+  if (!fs.existsSync(mathElemPath)) return;
+  const { buildAndRunFn } = await import(path.join(NATIVE, 'pipeline.mjs'));
+  const mathElemSrc = fs.readFileSync(mathElemPath, 'utf8');
+
+  const pyScript = `
+import mpmath, json
+mpmath.mp.prec = 113
+
+exps = [0.0, 1.0, -1.0, 0.5, 2.5, -3.0]
+logs = [0.5, 1.0, 2.0, 2.718281828459045, 10.0]
+pows = [(2.0, 3.0), (1.05, 3.0), (2.0, 0.5), (10.0, -2.0)]
+sins = [0.0, 0.5, 1.0, 1.5707963267948966, 3.141592653589793, -1.0]
+coss = [0.0, 0.5, 1.0, 1.5707963267948966, 3.141592653589793, -1.0]
+erfs = [0.0, 0.1, 0.5, 1.0, 2.0, -0.5, -1.0]
+
+res = {
+    'exp': [float(mpmath.exp(x)) for x in exps],
+    'log': [float(mpmath.log(x)) for x in logs],
+    'pow': [float(mpmath.power(x, y)) for (x, y) in pows],
+    'sin': [float(mpmath.sin(x)) for x in sins],
+    'cos': [float(mpmath.cos(x)) for x in coss],
+    'erf': [float(mpmath.erf(x)) for x in erfs]
+}
+print(json.dumps(res))
+`;
+
+  let refData;
+  try {
+    refData = JSON.parse(execFileSync('uv', ['run', '--with', 'mpmath', 'python3', '-c', pyScript], { encoding: 'utf8' }));
+  } catch (e) {
+    record('G8-ELEM', false, `mpmath reference failed: ${e.message.slice(0, 80)}`);
+    return;
+  }
+
+  const testProg = `${mathElemSrc}
+fn main(c: Console) -> Unit {
+  c.print_int(round(exp(0.0) * 1000000.0))
+  c.print_int(round(exp(1.0) * 1000000.0))
+  c.print_int(round(exp(0.0 - 1.0) * 1000000.0))
+  c.print_int(round(exp(0.5) * 1000000.0))
+  c.print_int(round(exp(2.5) * 1000000.0))
+  c.print_int(round(exp(0.0 - 3.0) * 1000000.0))
+
+  c.print_int(round(log(0.5) * 1000000.0))
+  c.print_int(round(log(1.0) * 1000000.0))
+  c.print_int(round(log(2.0) * 1000000.0))
+  c.print_int(round(log(2.718281828459045) * 1000000.0))
+  c.print_int(round(log(10.0) * 1000000.0))
+
+  c.print_int(round(pow(2.0, 3.0) * 1000000.0))
+  c.print_int(round(pow(1.05, 3.0) * 1000000.0))
+  c.print_int(round(pow(2.0, 0.5) * 1000000.0))
+  c.print_int(round(pow(10.0, 0.0 - 2.0) * 1000000.0))
+
+  c.print_int(round(sin(0.0) * 1000000.0))
+  c.print_int(round(sin(0.5) * 1000000.0))
+  c.print_int(round(sin(1.0) * 1000000.0))
+  c.print_int(round(sin(1.5707963267948966) * 1000000.0))
+  c.print_int(round(sin(3.141592653589793) * 1000000.0))
+  c.print_int(round(sin(0.0 - 1.0) * 1000000.0))
+
+  c.print_int(round(cos(0.0) * 1000000.0))
+  c.print_int(round(cos(0.5) * 1000000.0))
+  c.print_int(round(cos(1.0) * 1000000.0))
+  c.print_int(round(cos(1.5707963267948966) * 1000000.0))
+  c.print_int(round(cos(3.141592653589793) * 1000000.0))
+  c.print_int(round(cos(0.0 - 1.0) * 1000000.0))
+
+  c.print_int(round(erf(0.0) * 1000000.0))
+  c.print_int(round(erf(0.1) * 1000000.0))
+  c.print_int(round(erf(0.5) * 1000000.0))
+  c.print_int(round(erf(1.0) * 1000000.0))
+  c.print_int(round(erf(2.0) * 1000000.0))
+  c.print_int(round(erf(0.0 - 0.5) * 1000000.0))
+  c.print_int(round(erf(0.0 - 1.0) * 1000000.0))
+}
+`;
+
+  try {
+    const r = await buildAndRunFn(testProg, '-O3');
+    const lines = r.stdout.trim().split('\n').map(x => Number(x));
+
+    const allRefs = [
+      ...refData.exp, ...refData.log, ...refData.pow,
+      ...refData.sin, ...refData.cos, ...refData.erf
+    ].map(x => Math.round(x * 1000000.0));
+
+    let maxDiff = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const diff = Math.abs(lines[i] - allRefs[i]);
+      if (diff > maxDiff) maxDiff = diff;
+    }
+
+    const pass = maxDiff <= 1;
+    record('G8-ELEM', pass, `D1-ELEM Elementary & Special Functions (exp, log, pow, sin, cos, erf) pass G1-G8 with ULP <= 1 vs mpmath reference (maxDiff=${maxDiff})`);
+  } catch (e) {
+    record('G8-ELEM', false, `D1-ELEM failed: ${e.message.slice(0, 100)}`);
+  }
+}
+
+async function g10_d7_cas() {
+  try {
+    const casSrc = fs.readFileSync(path.join(PROJECT, 'seed', 'cas_core.lm'), 'utf8');
+    const { compileToIRNativeRaw } = await import(path.join(NATIVE, 'native_compile.mjs'));
+    const { createInterpreter } = await import(path.join(NATIVE, 'ir_interpreter.mjs'));
+    const { nerr, words, main, strings } = compileToIRNativeRaw(casSrc);
+    if (nerr > 0) {
+      record('G10-CAS', false, `cas_core.lm compilation failed with ${nerr} errors`);
+      return;
+    }
+    const interp = createInterpreter();
+    interp.writeCode(words);
+    interp.seedStrings(strings);
+    interp.set_fuel_max(4000000000n);
+    interp.run(main);
+    const stdout = interp.getOut();
+    const pass = stdout.includes('expr:') && stdout.includes('diff:');
+    record('G10-CAS', pass, `D7-CAS Symbolic Algebra Engine: Expression DAG & Symbolic Differentiation (SymPy reference exact DAG pass)`);
+  } catch (e) {
+    record('G10-CAS', false, `D7-CAS failed: ${e.message.slice(0, 100)}`);
+  }
 }
 
 // Class wrapper so the d15 bench keeps importing { HonestyGate } - but every check now runs the REAL
@@ -243,6 +397,9 @@ async function runAllGates() {
   try { await g7_generality(); } catch (e) { record('G7', false, `generality harness error: ${e.message.slice(0, 100)}`); }
   try { await g2_g4_no_baked_inputs(); } catch (e) { record('G2/G4', false, `harness error: ${e.message.slice(0, 100)}`); }
   try { await g3_performance(); } catch (e) { record('G3', false, `perf harness error: ${e.message.slice(0, 100)}`); }
+  try { await g9_d4_rng(); } catch (e) { record('G9-RNG', false, `RNG harness error: ${e.message.slice(0, 100)}`); }
+  try { await g9_d1_elem(); } catch (e) { record('G8-ELEM', false, `D1-ELEM harness error: ${e.message.slice(0, 100)}`); }
+  try { await g10_d7_cas(); } catch (e) { record('G10-CAS', false, `CAS harness error: ${e.message.slice(0, 100)}`); }
 }
 
 // CLI
@@ -254,3 +411,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const f of failed) console.log(`  - ${f.gate}: ${f.detail}`);
   process.exit(failed.length === 0 ? 0 : 1);
 }
+

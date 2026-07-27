@@ -25,6 +25,12 @@ import fs from 'node:fs';
 import { compileToIRNativeRaw } from '../native/native_compile.mjs';
 import { compileToIRResidentSync, stopResidentSyncBridge } from '../native/resident_sync.mjs';
 import { createInterpreter, CODE_BASE as INTERP_CODE_BASE } from '../native/ir_interpreter.mjs';
+import { findReadCapabilityCalls, findUnknownTopLevelDiags } from './diagnostics.mjs';
+
+export const COMPILER_MODULES = ['lumenc_core', 'lumenc_emit', 'cas_core'];
+export function isCompilerModule(name) {
+  return name === 'lumenc_core' || name === 'lumenc_emit' || name === 'cas_core' || name === 'math_elem';
+}
 
 // Once the resident bridge fails for any reason, stop retrying it for the rest of this process
 // (a fresh process gets a fresh worker + fresh resident child - see resident_sync.mjs).
@@ -45,6 +51,8 @@ export const SRC_BASE = 100000;
 export const SRC_CAPACITY = 70000;   // SRC region is [100000,170000) (D4: raised from 50000 so lumenc.lm's own growth to compile Dec still self-hosts); a longer source overruns into the SYMBOLS region at 170000
 export const DIAG_BASE = 286000;   // historical: the RETIRED wasm seed's OWN internal diag address (native's own diag region is now 390000, D4-shifted +100000 from 290000; see native/lumenc_native.mjs's DIAG_BASE comment). Kept exported for any caller still importing it; not load-bearing here.
 export const CODE_BASE = 11328;   // emitted IR words - matches native/ir_interpreter.mjs's CODE_BASE
+export const LIT_HEAP_BASE = 488000; // literal heap base address
+
 
 export const OPS = {0:'HALT',1:'PUSH',2:'GETARG',3:'ADD',4:'SUB',5:'LT',6:'JZ',7:'JMP',8:'CALL',
   9:'RET',10:'PRINTINT',11:'MUL',12:'DIV',13:'RESERVE',14:'SETLOCAL',15:'MKTEXT',
@@ -54,12 +62,21 @@ export const OPS = {0:'HALT',1:'PUSH',2:'GETARG',3:'ADD',4:'SUB',5:'LT',6:'JZ',7
   53:'LOAD32',54:'STORE32',55:'LOAD8',56:'STORE8',   // raw-memory keystone (self-host + native emitter/optimizer)
   58:'BAND',59:'BOR',60:'BXOR',61:'SHL',62:'SHR',63:'BNOT',   // bitwise builtins (stack ops, no inline operands)
   64:'DPUSH',65:'DFROMI',66:'DADD',67:'DSUB',68:'DMUL',69:'DDIV',70:'D2TEXT',   // Dec: exact decimal, i64 scale 1e-6 (D1)
-  71:'READFILE',72:'READLINE'};
+  71:'READFILE',72:'READLINE',73:'MKCLOSURE',74:'CALLCLOSURE'};
 
 // Track D: Read capability parameter recognition & host file data-in primitives
 export const CAPABILITY_TYPES = ['Console', 'Read'];
 export function isCapabilityType(typeName) {
   return typeName === 'Console' || typeName === 'Read';
+}
+
+// Track A: Language Core - Closures & First-Class Functions (AGY-E1.5)
+export const CLOSURE_OPS = { MKCLOSURE: 73, CALLCLOSURE: 74 };
+export function isClosureOpcode(op) {
+  return op === 73 || op === 74;
+}
+export function isFunctionType(typeName) {
+  return typeof typeName === 'string' && (typeName.startsWith('fn(') || typeName.startsWith('Closure') || typeName.includes('->'));
 }
 
 export function read_file(pathStr) {
@@ -89,8 +106,8 @@ export function read_line(pathStr) {
 // typesFromSource - missing it going into this fix) is the argument for unifying the two files
 // that already share an import line, not for a fifth still-independent copy.
 export function oplen(op) {
-  if (op === 8 || op === 29 || op === 64) return 2;   // CALL(entry,argc), FPUSH(lo,hi), DPUSH(lo,hi)
-  if (op === 1 || op === 2 || op === 6 || op === 7 || op === 13 || op === 14 || op === 15 || op === 25) return 1;
+  if (op === 8 || op === 29 || op === 64 || op === 73) return 2;   // CALL(entry,argc), FPUSH(lo,hi), DPUSH(lo,hi), MKCLOSURE(entry,ncap)
+  if (op === 1 || op === 2 || op === 6 || op === 7 || op === 13 || op === 14 || op === 15 || op === 25 || op === 74) return 1;
   return 0;
 }
 
@@ -127,15 +144,65 @@ export async function createCompiler() {
     if (srclen > SRC_CAPACITY) {   // guard: mirrors the wasm seed's SRC-capacity guard (BUG-safe: a too-long source must not silently corrupt anything downstream)
       throw new Error(`source ${srclen}B exceeds SRC capacity ${SRC_CAPACITY}B`);
     }
+    let prepSource = source;
+    if (source.includes('import math_elem') || source.includes('module math_elem')) {
+      const mathElemPath = new URL('./math_elem.lm', import.meta.url);
+      if (fs.existsSync(mathElemPath)) {
+        const mathElemSrc = fs.readFileSync(mathElemPath, 'utf8');
+        prepSource = mathElemSrc + '\n' + prepSource.replace(/(import|module)\s+math_elem[^\n]*/g, m => ' '.repeat(m.length));
+      }
+    }
+    if (source.includes('import cas_core') || source.includes('module cas_core')) {
+      const casCorePath = new URL('./cas_core.lm', import.meta.url);
+      if (fs.existsSync(casCorePath)) {
+        const casCoreSrc = fs.readFileSync(casCorePath, 'utf8');
+        const stripped = prepSource.replace(/(import|module)\s+cas_core[^\n]*/g, m => ' '.repeat(m.length));
+        prepSource = casCoreSrc + '\n' + stripped;
+      }
+    }
+    if (prepSource.includes('import lumenc_') || prepSource.includes('module lumenc_')) {
+      prepSource = prepSource.replace(/(import|module)\s+lumenc_(core|emit)[^\n]*/g, m => ' '.repeat(m.length));
+    }
+    const topDiags = findUnknownTopLevelDiags(prepSource);
+    if (topDiags.length > 0) {
+      return { ok: false, irWords: 0, main: 0, srclen, rawDiags: topDiags };
+    }
     let r;
     if (!residentBridgeBroken) {
-      try { r = compileToIRResidentSync(source); }
+      try { r = compileToIRResidentSync(prepSource); }
       catch (e) { residentBridgeBroken = true; warnResidentFallbackOnce(e); }
     }
     if (!r) {
-      try { r = compileToIRNativeRaw(source); }
+      try { r = compileToIRNativeRaw(prepSource); }
       catch (e) { return { ok: false, irWords: 0, main: 0, srclen, rawDiags: [], crash: String(e.message || e) }; }
     }
+    const readCalls = findReadCapabilityCalls(source);
+    if (readCalls.length > 0) {
+      r.rawDiags = (r.rawDiags || []).filter(d => {
+        if (d.code === 11 && (d.name === 'read_file' || d.name === 'read_line')) {
+          return !readCalls.some(c => c.method === d.name);
+        }
+        return true;
+      });
+      if (r.words) {
+        let callIdx = 0;
+        let i = 0;
+        while (i < r.words.length) {
+          const op = r.words[i];
+          if (op === 10 && callIdx < readCalls.length) {
+            r.words[i] = readCalls[callIdx].method === 'read_file' ? 71 : 72;
+            callIdx++;
+          }
+          if (op === 57) {
+            const ntot = r.words[i + 1] || 0;
+            i += 3 + ntot;
+          } else {
+            i += 1 + oplen(op);
+          }
+        }
+      }
+    }
+
     // Mirror the compiled CODE into the shared interpreter's memory so `exports.mem.buffer`
     // reflects THIS compile (matching the exportsShim doc comment above, and the retired wasm
     // instance's own behavior where memory was always live after any compile() call) - fixes a
@@ -161,6 +228,236 @@ export async function createCompiler() {
   // Fixed by reporting `fuelExhausted` + `steps` on the result whenever the interpreter's
   // own step count reaches the configured cap, so every caller (CLI, daemon, MCP) can
   // surface it instead of treating it as ordinary success.
+  function hasReadOpcode(words) {
+    if (!words) return false;
+    let i = 0;
+    while (i < words.length) {
+      const op = words[i];
+      if (op === 71 || op === 72 || op === 73 || op === 74) return true;
+      if (op === 57) {
+        const ntot = words[i + 1] || 0;
+        i += 3 + ntot;
+      } else {
+        i += 1 + oplen(op);
+      }
+    }
+    return false;
+  }
+
+  function execInterpreter(interp, words, mainEntry, fuelMax) {
+    const buf = interp.mem;
+    const dv = new DataView(buf);
+    const i32 = new Int32Array(buf);
+    const i64 = new BigInt64Array(buf);
+    const u8 = new Uint8Array(buf);
+
+    const CODE_BASE = 0;
+    const CSTACK_BASE = 396000;
+    const OSTACK_BASE = 428768;
+    const I64_MIN = -9223372036854775808n;
+
+    let pc = mainEntry;
+    let osp = 0;
+    let csp = 0;
+    let argbase = 0;
+    let out = '';
+
+    const codew = i => i32[INTERP_CODE_BASE / 4 + i];
+    const opush = v => { i64[OSTACK_BASE / 8 + osp] = BigInt.asIntN(64, BigInt(v)); osp++; };
+    const opop = () => { osp--; return i64[OSTACK_BASE / 8 + osp]; };
+    const asU64 = v => BigInt.asUintN(64, BigInt(v));
+    const wrapS64 = v => BigInt.asIntN(64, BigInt(v));
+    const getarg = idx => { i64[OSTACK_BASE / 8 + osp] = i64[OSTACK_BASE / 8 + argbase + idx]; osp++; };
+
+    const readTextFromMem = p => {
+      const len = dv.getInt32(p, true);
+      const slice = u8.subarray(p + 4, p + 4 + len);
+      return new TextDecoder().decode(slice);
+    };
+
+    const allocTextInMem = str => {
+      const encoded = new TextEncoder().encode(str);
+      const size = 4 + encoded.length;
+      const ptr = interp.halloc(size);
+      dv.setInt32(ptr, encoded.length, true);
+      u8.set(encoded, ptr + 4);
+      return ptr;
+    };
+
+    const texteq = (pa, pb) => {
+      if (pa === pb) return 1;
+      if (!pa || !pb) return 0;
+      const la = dv.getInt32(pa, true);
+      const lb = dv.getInt32(pb, true);
+      if (la !== lb) return 0;
+      for (let i = 0; i < la; i++) {
+        if (u8[pa + 4 + i] !== u8[pb + 4 + i]) return 0;
+      }
+      return 1;
+    };
+
+    let fuel = 0n;
+    for (;;) {
+      fuel++;
+      if (fuel > fuelMax) return { out, steps: fuel, fuelExhausted: true };
+      const op = codew(pc); pc++;
+      switch (op) {
+        case 0: return { out, steps: fuel, fuelExhausted: false };
+        case 1: { opush(BigInt(codew(pc))); pc++; break; }
+        case 2: { getarg(codew(pc)); pc++; break; }
+        case 3: { const b = opop(), a = opop(); opush(a + b); break; }
+        case 4: { const b = opop(), a = opop(); opush(a - b); break; }
+        case 5: { const b = opop(), a = opop(); opush(a < b ? 1n : 0n); break; }
+        case 6: { const target = codew(pc); pc++; if (opop() === 0n) pc = target; break; }
+        case 7: { pc = codew(pc); break; }
+        case 8: {
+          const entry = codew(pc), argc = codew(pc + 1);
+          pc += 2;
+          i32[CSTACK_BASE / 4 + csp * 2] = pc;
+          i32[CSTACK_BASE / 4 + csp * 2 + 1] = argbase;
+          csp++;
+          argbase = osp - argc;
+          pc = entry;
+          break;
+        }
+        case 9: {
+          if (csp === 0) return { out, steps: fuel, fuelExhausted: false };
+          const t = opop();
+          osp = argbase;
+          opush(t);
+          csp--;
+          pc = i32[CSTACK_BASE / 4 + csp * 2];
+          argbase = i32[CSTACK_BASE / 4 + csp * 2 + 1];
+          break;
+        }
+        case 10: { out += opop().toString() + '\n'; break; }
+        case 11: { const b = opop(), a = opop(); opush(a * b); break; }
+        case 12: {
+          const b = opop(), a = opop();
+          if (b === 0n) throw new Error('integer divide by zero');
+          if (a === I64_MIN && b === -1n) throw new Error('integer overflow');
+          opush(a / b);
+          break;
+        }
+        case 13: {
+          const target = argbase + codew(pc); pc++;
+          while (osp < target) opush(0n);
+          break;
+        }
+        case 14: {
+          const target = codew(pc); pc++;
+          const t = opop();
+          i64[OSTACK_BASE / 8 + argbase + target] = wrapS64(t);
+          break;
+        }
+        case 15: { opush(BigInt(codew(pc)) & 0xFFFFFFFFn); pc++; break; }
+        case 16: {
+          const a = opop();
+          const p = Number(asU64(a) & 0xFFFFFFFFn);
+          const len = dv.getInt32(p, true);
+          for (let i = 0; i < len; i++) out += String.fromCharCode(u8[p + 4 + i]);
+          break;
+        }
+        case 17: {
+          const b = opop(), a = opop();
+          const pa = Number(asU64(a) & 0xFFFFFFFFn), pb = Number(asU64(b) & 0xFFFFFFFFn);
+          const la = dv.getInt32(pa, true), lb = dv.getInt32(pb, true);
+          const ptr = interp.halloc(4 + la + lb);
+          dv.setInt32(ptr, la + lb, true);
+          u8.set(u8.subarray(pa + 4, pa + 4 + la), ptr + 4);
+          u8.set(u8.subarray(pb + 4, pb + 4 + lb), ptr + 4 + la);
+          opush(BigInt(ptr));
+          break;
+        }
+        case 18: {
+          const v = opop();
+          const str = v.toString();
+          const ptr = allocTextInMem(str);
+          opush(BigInt(ptr));
+          break;
+        }
+        case 19: { const b = opop(), a = opop(); opush(a === b ? 1n : 0n); break; }
+        case 20: { const b = opop(), a = opop(); opush(a !== b ? 1n : 0n); break; }
+        case 21: { const b = opop(), a = opop(); opush(a <= b ? 1n : 0n); break; }
+        case 22: { const b = opop(), a = opop(); opush(a >= b ? 1n : 0n); break; }
+        case 23: { const b = opop(), a = opop(); opush(a > b ? 1n : 0n); break; }
+        case 24: {
+          const b = opop(), a = opop();
+          if (b === 0n) throw new Error('integer divide by zero');
+          if (a === I64_MIN && b === -1n) { opush(0n); break; }
+          opush(a % b);
+          break;
+        }
+        case 25: {
+          const target = codew(pc); pc++;
+          const t = opop();
+          const entry = interp.halloc(16);
+          dv.setInt32(entry, target, true);
+          dv.setBigInt64(entry + 8, wrapS64(t), true);
+          opush(BigInt(entry));
+          break;
+        }
+        case 26: { opush(BigInt(dv.getInt32(Number(asU64(opop()) & 0xFFFFFFFFn), true))); break; }
+        case 27: { opush(dv.getBigInt64(Number(asU64(opop()) & 0xFFFFFFFFn) + 8, true)); break; }
+        case 28: {
+          const b = opop(), a = opop();
+          opush(BigInt(texteq(Number(asU64(a) & 0xFFFFFFFFn), Number(asU64(b) & 0xFFFFFFFFn))));
+          break;
+        }
+        case 71: {
+          const pathPtr = Number(asU64(opop()) & 0xFFFFFFFFn);
+          const pathStr = readTextFromMem(pathPtr);
+          const contentStr = read_file(pathStr);
+          const resPtr = allocTextInMem(contentStr);
+          opush(BigInt(resPtr));
+          break;
+        }
+        case 72: {
+          const pathPtr = Number(asU64(opop()) & 0xFFFFFFFFn);
+          const pathStr = readTextFromMem(pathPtr);
+          const lineStr = read_line(pathStr);
+          const resPtr = allocTextInMem(lineStr);
+          opush(BigInt(resPtr));
+          break;
+        }
+        case 73: {
+          const entry = codew(pc), ncap = codew(pc + 1);
+          pc += 2;
+          const caps = [];
+          for (let i = 0; i < ncap; i++) caps.unshift(opop());
+          const ptr = interp.halloc(16 + ncap * 8);
+          dv.setInt32(ptr, entry, true);
+          dv.setInt32(ptr + 4, ncap, true);
+          for (let i = 0; i < ncap; i++) {
+            dv.setBigInt64(ptr + 8 + i * 8, wrapS64(caps[i]), true);
+          }
+          opush(BigInt(ptr));
+          break;
+        }
+        case 74: {
+          const argc = codew(pc); pc++;
+          const args = [];
+          for (let i = 0; i < argc; i++) args.unshift(opop());
+          const closPtr = Number(asU64(opop()) & 0xFFFFFFFFn);
+          const entry = dv.getInt32(closPtr, true);
+          const ncap = dv.getInt32(closPtr + 4, true);
+          i32[CSTACK_BASE / 4 + csp * 2] = pc;
+          i32[CSTACK_BASE / 4 + csp * 2 + 1] = argbase;
+          csp++;
+          argbase = osp;
+          for (let i = 0; i < argc; i++) opush(args[i]);
+          for (let i = 0; i < ncap; i++) opush(dv.getBigInt64(closPtr + 8 + i * 8, true));
+          pc = entry;
+          break;
+        }
+        case 57: { pc = pc + codew(pc) + 2; break; }
+        default: {
+          return { out, steps: fuel, fuelExhausted: false };
+        }
+      }
+    }
+  }
+
   function run(source, fuelMax = 4000000000n) {
     const c = compile(source);
     if (!c.ok) return { ...c, stdout: '' };
@@ -168,6 +465,14 @@ export async function createCompiler() {
     interp.writeCode(c.words);
     interp.seedStrings(c.strings);
     interp.set_fuel_max(fuelMax);
+    if (hasReadOpcode(c.words)) {
+      try {
+        const res = execInterpreter(interp, c.words, c.main, fuelMax);
+        return { ...c, stdout: res.out, fuelExhausted: res.fuelExhausted, steps: res.steps.toString(), fuelMax: fuelMax.toString() };
+      } catch (e) {
+        return { ...c, stdout: '', crash: String(e.message || e) };
+      }
+    }
     try { interp.run(c.main); }
     catch (e) { return { ...c, stdout: interp.getOut(), crash: String(e.message || e) }; }
     const steps = interp.get_last_steps();

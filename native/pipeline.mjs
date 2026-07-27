@@ -157,7 +157,8 @@ export async function emitWith(emitterSrc, words, main, strings = [], base = SCR
 
 // v2 per-function emitter (emit_fn.lm) - the "beat C" lowering. Native end to end.
 export async function buildAndRunFn(src, opt = '-O2') {
-  const { words, main, strings } = compileToIRNative(src);
+  const { words, main, strings, nerr } = compileToIRNative(src);
+  if (nerr > 0) throw new Error(`Lumen compilation failed with ${nerr} error(s)`);
   const optResult = optimizeIRNative(words, main);
   const csrc = await emitC(optResult.words, optResult.main, strings);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumen-fn-'));
