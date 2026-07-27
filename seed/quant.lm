@@ -1,0 +1,183 @@
+# seed/quant.lm - D10-QUANT Quantitative Finance Catalog: Analytical Options, SABR Vol Surface & Monte Carlo HVaR
+
+fn norm_pdf(x: Float) -> Float {
+  let inv_sqrt_2pi: Float = 0.3989422804014327
+  return inv_sqrt_2pi * exp(0.0 - 0.5 * x * x)
+}
+
+fn norm_cdf(x: Float) -> Float {
+  if x < 0.0 {
+    return 1.0 - norm_cdf(0.0 - x)
+  }
+  let k: Float = 1.0 / (1.0 + 0.2316419 * x)
+  let poly: Float = k * (0.319381530 + k * (0.0 - 0.356563782 + k * (1.781477937 + k * (0.0 - 1.821255978 + k * 1.330274429))))
+  let pdf: Float = 0.3989422804014327 * exp(0.0 - 0.5 * x * x)
+  return 1.0 - pdf * poly
+}
+
+fn bs_d1(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  return (ln(s / k) + (r + 0.5 * vol * vol) * t) / (vol * sqrt(t))
+}
+
+fn bs_d2(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  return d1 - vol * sqrt(t)
+}
+
+fn bs_call(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  let d2: Float = d1 - vol * sqrt(t)
+  return s * norm_cdf(d1) - k * exp(0.0 - r * t) * norm_cdf(d2)
+}
+
+fn bs_put(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  let d2: Float = d1 - vol * sqrt(t)
+  return k * exp(0.0 - r * t) * norm_cdf(0.0 - d2) - s * norm_cdf(0.0 - d1)
+}
+
+fn bs_delta_call(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  return norm_cdf(d1)
+}
+
+fn bs_delta_put(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  return norm_cdf(d1) - 1.0
+}
+
+fn bs_gamma(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  return norm_pdf(d1) / (s * vol * sqrt(t))
+}
+
+fn bs_vega(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  return s * norm_pdf(d1) * sqrt(t)
+}
+
+fn bs_theta_call(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  let d2: Float = d1 - vol * sqrt(t)
+  let term1: Float = 0.0 - (s * norm_pdf(d1) * vol) / (2.0 * sqrt(t))
+  let term2: Float = r * k * exp(0.0 - r * t) * norm_cdf(d2)
+  return term1 - term2
+}
+
+fn bs_theta_put(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  let d2: Float = d1 - vol * sqrt(t)
+  let term1: Float = 0.0 - (s * norm_pdf(d1) * vol) / (2.0 * sqrt(t))
+  let term2: Float = r * k * exp(0.0 - r * t) * norm_cdf(0.0 - d2)
+  return term1 + term2
+}
+
+fn bs_rho_call(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  let d2: Float = d1 - vol * sqrt(t)
+  return k * t * exp(0.0 - r * t) * norm_cdf(d2)
+}
+
+fn bs_rho_put(s: Float, k: Float, r: Float, t: Float, vol: Float) -> Float {
+  let d1: Float = bs_d1(s, k, r, t, vol)
+  let d2: Float = d1 - vol * sqrt(t)
+  return 0.0 - k * t * exp(0.0 - r * t) * norm_cdf(0.0 - d2)
+}
+
+fn sabr_vol_atm(f: Float, t: Float, alpha: Float, beta: Float, rho: Float, nu: Float) -> Float {
+  let f_one_minus_beta: Float = pow(f, 1.0 - beta)
+  let term1: Float = alpha / f_one_minus_beta
+  let term2_a: Float = ((1.0 - beta) * (1.0 - beta) / 24.0) * (alpha * alpha) / (f_one_minus_beta * f_one_minus_beta)
+  let term2_b: Float = 0.25 * (rho * beta * nu * alpha) / f_one_minus_beta
+  let term2_c: Float = ((2.0 - 3.0 * rho * rho) / 24.0) * (nu * nu)
+  return term1 * (1.0 + (term2_a + term2_b + term2_c) * t)
+}
+
+fn sabr_vol(f: Float, k: Float, t: Float, alpha: Float, beta: Float, rho: Float, nu: Float) -> Float {
+  let diff: Float = f - k
+  if abs(diff) < 0.000001 {
+    return sabr_vol_atm(f, t, alpha, beta, rho, nu)
+  }
+  let fk: Float = f * k
+  let fk_pow: Float = pow(fk, (1.0 - beta) / 2.0)
+  let log_fk: Float = ln(f / k)
+  let z: Float = (nu / alpha) * fk_pow * log_fk
+  
+  let sq: Float = sqrt(1.0 - 2.0 * rho * z + z * z)
+  let xz: Float = ln((sq + z - rho) / (1.0 - rho))
+  
+  let denom_a: Float = 1.0 + ((1.0 - beta) * (1.0 - beta) / 24.0) * (log_fk * log_fk) + ((1.0 - beta) * (1.0 - beta) * (1.0 - beta) * (1.0 - beta) / 1920.0) * (log_fk * log_fk * log_fk * log_fk)
+  let denom: Float = fk_pow * denom_a
+  
+  let z_over_xz: Float = z / xz
+  
+  let term2_a: Float = ((1.0 - beta) * (1.0 - beta) / 24.0) * (alpha * alpha) / (pow(fk, 1.0 - beta))
+  let term2_b: Float = 0.25 * (rho * beta * nu * alpha) / fk_pow
+  let term2_c: Float = ((2.0 - 3.0 * rho * rho) / 24.0) * (nu * nu)
+  
+  return (alpha / denom) * z_over_xz * (1.0 + (term2_a + term2_b + term2_c) * t)
+}
+
+fn sort_floats(arr: Int, n: Int) -> Unit {
+  var i: Int = 1
+  while i < n {
+    let key: Float = aget(arr, i)
+    var j: Int = i - 1
+    var cont: Int = 1
+    while cont == 1 {
+      if j < 0 {
+        cont = 0
+      } else {
+        let val: Float = aget(arr, j)
+        if val > key {
+          aset(arr, j + 1, val)
+          j = j - 1
+        } else {
+          cont = 0
+        }
+      }
+    }
+    aset(arr, j + 1, key)
+    i = i + 1
+  }
+}
+
+fn mc_hvar(returns: Int, n: Int, confidence: Float) -> Float {
+  sort_floats(returns, n)
+  let idx: Int = round(to_float(n) * (1.0 - confidence))
+  var target_idx: Int = idx
+  if target_idx < 0 {
+    target_idx = 0
+  }
+  if target_idx >= n {
+    target_idx = n - 1
+  }
+  let val: Float = aget(returns, target_idx)
+  if val < 0.0 {
+    return 0.0 - val
+  }
+  return val
+}
+
+fn mc_es(returns: Int, n: Int, confidence: Float) -> Float {
+  sort_floats(returns, n)
+  let cutoff_count: Int = round(to_float(n) * (1.0 - confidence))
+  var k: Int = cutoff_count
+  if k < 1 {
+    k = 1
+  }
+  if k > n {
+    k = n
+  }
+  var sum: Float = 0.0
+  var i: Int = 0
+  while i < k {
+    sum = sum + aget(returns, i)
+    i = i + 1
+  }
+  let avg: Float = sum / to_float(k)
+  if avg < 0.0 {
+    return 0.0 - avg
+  }
+  return avg
+}
