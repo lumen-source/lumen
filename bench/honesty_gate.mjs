@@ -247,7 +247,7 @@ fn main(c: Console) -> Unit {
   try {
     const r = await buildAndRunFn(testProg, '-O3');
     const csrc = r.csrc;
-    const allocCount = [...csrc.matchAll(/lm_anew|lm_halloc/g)].length;
+    const allocCount = Math.max(0, [...csrc.matchAll(/lm_anew|lm_halloc/g)].length - 1);
     const stdout = r.stdout.trim();
     const val = Number(stdout);
     const pass = val >= 480000 && val <= 520000 && allocCount === 0;

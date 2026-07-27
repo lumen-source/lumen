@@ -27,9 +27,9 @@ import { compileToIRResidentSync, stopResidentSyncBridge } from '../native/resid
 import { createInterpreter, CODE_BASE as INTERP_CODE_BASE } from '../native/ir_interpreter.mjs';
 import { findReadCapabilityCalls, findUnknownTopLevelDiags } from './diagnostics.mjs';
 
-export const COMPILER_MODULES = ['lumenc_core', 'lumenc_emit', 'cas_core'];
+export const COMPILER_MODULES = ['lumenc_core', 'lumenc_emit', 'cas_core', 'math_elem', 'rng'];
 export function isCompilerModule(name) {
-  return name === 'lumenc_core' || name === 'lumenc_emit' || name === 'cas_core' || name === 'math_elem';
+  return name === 'lumenc_core' || name === 'lumenc_emit' || name === 'cas_core' || name === 'math_elem' || name === 'rng';
 }
 
 // Once the resident bridge fails for any reason, stop retrying it for the rest of this process
@@ -158,6 +158,14 @@ export async function createCompiler() {
         const casCoreSrc = fs.readFileSync(casCorePath, 'utf8');
         const stripped = prepSource.replace(/(import|module)\s+cas_core[^\n]*/g, m => ' '.repeat(m.length));
         prepSource = casCoreSrc + '\n' + stripped;
+      }
+    }
+    if (source.includes('import rng') || source.includes('module rng')) {
+      const rngPath = new URL('./rng.lm', import.meta.url);
+      if (fs.existsSync(rngPath)) {
+        const rngSrc = fs.readFileSync(rngPath, 'utf8');
+        const stripped = prepSource.replace(/(import|module)\s+rng[^\n]*/g, m => ' '.repeat(m.length));
+        prepSource = rngSrc + '\n' + stripped;
       }
     }
     if (prepSource.includes('import lumenc_') || prepSource.includes('module lumenc_')) {
