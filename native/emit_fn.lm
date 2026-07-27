@@ -42,6 +42,8 @@ fn oplen(op: Int) -> Int {
   if op == 25 { return 1 }
   if op == 29 { return 2 }
   if op == 64 { return 2 }
+  if op == 73 { return 2 }
+  if op == 74 { return 1 }
   return 0
 }
 
@@ -224,6 +226,14 @@ fn oplen_d_change(op: Int, pc: Int, d: Int) -> Int {
   if op == 70 { res = d }
   if op == 71 { res = d }
   if op == 72 { res = d }
+  if op == 73 {
+    let ncap = ir_word(pc + 2)
+    res = d - ncap + 1
+  }
+  if op == 74 {
+    let argc = ir_word(pc + 1)
+    res = d - argc
+  }
   if res < 0 { return 0 }
   return res
 }
