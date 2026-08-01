@@ -761,8 +761,68 @@ if (process.argv[1] && process.argv[1].endsWith('lumen_serve_native.mjs') && pro
   process.exit(fail + hfFail === 0 ? 0 : 1);
 }
 
+// --- bundle mode: compile ONCE at build time, emit an artifact the compiler-free host can run. ---
+//
+// This is the fix for "every cold start is a compile" (see lumen_serve_host.mjs's header for the
+// measured numbers and the continuous CPU bill that hiding it produced). buildNativeServeCached
+// already avoided recompiling when its on-disk cache survived into the image layer, but that only
+// moved WHEN the compile happens while still requiring the whole toolchain, clang, and the kernel
+// source to be present at run time - so the runtime image stayed a compiler, and any image built
+// before that cache existed silently went back to compiling on every start with nothing detecting
+// it. Emitting a bundle removes the possibility rather than the occurrence: the runtime artifact is
+// a binary plus its preload block plus a manifest, and lumen_serve_host.mjs cannot compile even if
+// it wanted to, because it imports no part of the toolchain.
+export async function emitBundle(cfgPath, outDir) {
+  const cfg = loadConfig(cfgPath);
+  const proxyMode = !!cfg.proxyPass || cfg.hostFiles.size > 0;
+  const { bin, bodyBlock } = await buildNativeServeCached(cfgPath, cfg.routes, proxyMode, cfg.handlersSrc);
+
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.copyFileSync(bin, path.join(outDir, 'serve.bin'));
+  fs.chmodSync(path.join(outDir, 'serve.bin'), 0o755);
+  fs.writeFileSync(path.join(outDir, 'body.block'), bodyBlock);
+
+  // hostFile bodies stay on disk by design (they are too large for the kernel's body window), so
+  // they must travel WITH the bundle - copied in, and recorded relative to the bundle dir, so the
+  // runtime image needs nothing from the original source tree.
+  const hostFiles = [];
+  for (const [key, entry] of cfg.hostFiles) {
+    const base = path.basename(entry.file);
+    fs.copyFileSync(entry.file, path.join(outDir, base));
+    hostFiles.push({ key, file: base, status: entry.status, contentType: entry.contentType });
+  }
+
+  const manifest = {
+    format: 1,
+    bin: 'serve.bin',
+    bodyBlock: 'body.block',
+    port: cfg.port,
+    proxyPass: cfg.proxyPass || null,
+    reqCap: REQ_CAP,                 // pinned so a host built against a different memory map fails loudly
+    hostFiles,
+    routes: cfg.routes.map((r) => `${r.method || 'GET'} ${r.path}`),   // informational, for logs
+    builtAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(path.join(outDir, 'bundle.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  console.log(`lumen: emitted serve bundle -> ${outDir} (${manifest.routes.length} routes, `
+    + `${bodyBlock.length} body bytes${manifest.proxyPass ? `, proxy -> ${manifest.proxyPass}` : ''})`);
+  return manifest;
+}
+
+if (process.argv[1] && process.argv[1].endsWith('lumen_serve_native.mjs')
+  && process.argv.includes('--emit-bundle')) {
+  const i = process.argv.indexOf('--emit-bundle');
+  const cfgPath = process.argv[i + 1], outDir = process.argv[i + 2];
+  if (!cfgPath || !outDir) {
+    console.error('usage: node lumen_serve_native.mjs --emit-bundle <config.json> <outDir>');
+    process.exit(2);
+  }
+  await emitBundle(path.resolve(cfgPath), path.resolve(outDir));
+  process.exit(0);
+}
+
 // server mode: node lumen_serve_native.mjs <config.json>
 if (process.argv[1] && process.argv[1].endsWith('lumen_serve_native.mjs')
-  && !process.argv.includes('--selftest') && process.argv[2]) {
+  && !process.argv.includes('--selftest') && !process.argv.includes('--emit-bundle') && process.argv[2]) {
   await runServer(path.resolve(process.argv[2]));
 }
