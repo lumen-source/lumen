@@ -1,5 +1,8 @@
 // lumen_serve_host.mjs - run a PREBUILT Lumen serve bundle. No compiler, no clang, no kernel source.
 //
+// Deployment runbook (the two commands, the container shape, the checklist):
+//   docs/DEPLOYING_THE_HTTP_SERVER.md
+//
 // Why this file exists (the cost/latency root cause it removes):
 //
 // lumen_serve_native.mjs is both the BUILDER and the RUNNER of the native serve binary. Because it
