@@ -763,6 +763,8 @@ if (process.argv[1] && process.argv[1].endsWith('lumen_serve_native.mjs') && pro
 
 // --- bundle mode: compile ONCE at build time, emit an artifact the compiler-free host can run. ---
 //
+// Deployment runbook: docs/DEPLOYING_THE_HTTP_SERVER.md
+//
 // This is the fix for "every cold start is a compile" (see lumen_serve_host.mjs's header for the
 // measured numbers and the continuous CPU bill that hiding it produced). buildNativeServeCached
 // already avoided recompiling when its on-disk cache survived into the image layer, but that only
